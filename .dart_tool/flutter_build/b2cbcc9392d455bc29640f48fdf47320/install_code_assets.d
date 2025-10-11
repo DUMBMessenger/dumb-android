@@ -1,0 +1,1 @@
+ /home/debianrose/dumb-android/.dart_tool/flutter_build/b2cbcc9392d455bc29640f48fdf47320/native_assets.json: 
