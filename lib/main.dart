@@ -11,11 +11,10 @@ import 'package:just_audio/just_audio.dart';
 import 'package:mime/mime.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:record/record.dart';
+import 'package:audio_recorder/audio_recorder.dart';
 import 'package:dumb_android/l10n/app_localizations.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
-import 'package:disk_space/disk_space.dart';
 
 String apiUrl = 'http://localhost:3000';
 String telemetryUrl = 'http://dumb-analytics.akaruineko.space:7634';
@@ -73,10 +72,13 @@ class _DumbAppState extends State<DumbApp> {
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
       final batteryLevel = await _battery.batteryLevel;
-      final chargingStatus = await _battery.batteryStatus;
-      final diskSpace = await DiskSpace.getFreeDiskSpace;
-      final diskTotal = await DiskSpace.getTotalDiskSpace;
+      final batteryState = await _battery.batteryState;
+      final isInBatterySaveMode = await _battery.isInBatterySaveMode;
 
+      // Получаем информацию о хранилище через path_provider
+      final directory = await getExternalStorageDirectory();
+      final storageStat = directory != null ? await File(directory.path).stat() : null;
+      
       final telemetryData = {
         'type': 'android',
         'device_id': androidInfo.id,
@@ -86,12 +88,17 @@ class _DumbAppState extends State<DumbApp> {
         'android_version': androidInfo.version.release,
         'sdk': androidInfo.version.sdkInt,
         'battery_level': batteryLevel,
-        'charging': chargingStatus == BatteryStatus.charging,
+        'charging': batteryState == BatteryState.charging,
+        'battery_saver_mode': isInBatterySaveMode,
         'rooted': false,
         'storage': {
-          'total': diskTotal,
-          'free': diskSpace,
-        }
+          'total': storageStat != null ? storageStat.size : 0,
+          'free': directory != null ? await _getFreeSpace(directory.path) : 0,
+        },
+        'model': androidInfo.model,
+        'product': androidInfo.product,
+        'hardware': androidInfo.hardware,
+        'is_physical_device': androidInfo.isPhysicalDevice,
       };
 
       final response = await http.post(
@@ -105,6 +112,15 @@ class _DumbAppState extends State<DumbApp> {
       }
     } catch (e) {
       print('Telemetry failed: $e');
+    }
+  }
+
+  Future<int> _getFreeSpace(String path) async {
+    try {
+      final stat = FileStat.statSync(path);
+      return stat.size;
+    } catch (e) {
+      return 0;
     }
   }
 
@@ -1478,7 +1494,6 @@ class _ChatScreenState extends State<ChatScreen> {
   WebSocketChannel? _channel;
   final TextEditingController _messageController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  final Record _audioRecorder = Record();
   bool _isRecording = false;
   String? _recordingPath;
 
@@ -1560,14 +1575,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startRecording() async {
     try {
-      if (await _audioRecorder.hasPermission()) {
+      if (await Permission.microphone.isGranted) {
         final tempDir = await getTemporaryDirectory();
-        final filePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.ogg';
+        final filePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.m4a';
         
-        await _audioRecorder.start(
-          RecordConfig(encoder: AudioEncoder.opus),
-          path: filePath,
-        );
+        await AudioRecorder.start(path: filePath, audioOutputFormat: AudioOutputFormat.AAC);
         
         setState(() {
           _isRecording = true;
@@ -1581,20 +1593,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _stopRecording() async {
     try {
-      await _audioRecorder.stop();
+      final recording = await AudioRecorder.stop();
       setState(() => _isRecording = false);
       
-      if (_recordingPath != null) {
-        await _sendVoiceMessage();
+      if (recording != null && recording.path != null) {
+        await _sendVoiceMessage(recording.path!);
       }
     } catch (e) {
       print('Error stopping recording: $e');
     }
   }
 
-  Future<void> _sendVoiceMessage() async {
-    if (_recordingPath == null) return;
-
+  Future<void> _sendVoiceMessage(String filePath) async {
     try {
       var request = http.MultipartRequest(
         'POST',
@@ -1603,7 +1613,7 @@ class _ChatScreenState extends State<ChatScreen> {
       request.headers['Authorization'] = 'Bearer ${widget.token}';
       request.files.add(await http.MultipartFile.fromPath(
         'file',
-        _recordingPath!,
+        filePath,
       ));
 
       var response = await request.send();
@@ -1756,7 +1766,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _channel?.sink.close();
     _messageController.dispose();
     _audioPlayer.dispose();
-    _audioRecorder.dispose();
     super.dispose();
   }
 
