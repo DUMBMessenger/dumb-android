@@ -9,5 +9,5 @@ build
 android/local.properties
 build
 android/app/build
-.dart_tools
+.dart_tool
 android/app/*.jks
