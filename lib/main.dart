@@ -270,7 +270,7 @@ class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
 
     setState(() => _loading = true);
     try {
-      final resp = await http.get(Uri.parse('$url/api/ping'));
+      final resp = await http.get(Uri.parse('$url/ping'));
       if (resp.statusCode == 200) {
         widget.setServerUrl(url);
         Navigator.pushReplacement(
@@ -368,6 +368,7 @@ class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
     switch (locale.languageCode) {
       case 'en': return 'English';
       case 'ru': return 'Русский';
+      case 'uk': return 'украинский';
       default: return locale.languageCode;
     }
   }
