@@ -1493,7 +1493,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool loading = true;
   WebSocketChannel? _channel;
   final TextEditingController _messageController = TextEditingController();
-  final Record _audioRecorder = AudioRecorder();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   String? _recordingPath;
   late String _tempDir;
@@ -1582,14 +1582,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startRecording() async {
     try {
-      if (await _audioRecorder.hasPermission()) {
+      final hasPermission = await _audioRecorder.hasPermission();
+      if (hasPermission) {
         final filePath = '$_tempDir/${DateTime.now().millisecondsSinceEpoch}.m4a';
-
         await _audioRecorder.start(
+          const RecordConfig(encoder: AudioEncoder.opus),
           path: filePath,
-          encoder: AudioEncoder.opus,
         );
-
         setState(() {
           _isRecording = true;
           _recordingPath = filePath;
@@ -1607,11 +1606,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
   Future<void> _stopRecording() async {
     try {
       final path = await _audioRecorder.stop();
       setState(() => _isRecording = false);
-
       if (path != null) {
         await _sendVoiceMessage(path);
       }
@@ -1622,6 +1621,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
   }
+
 
   Future<void> _sendVoiceMessage(String filePath) async {
     try {
