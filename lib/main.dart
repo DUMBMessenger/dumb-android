@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,7 +15,6 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:dumb_android/l10n/app_localizations.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
-import 'package:voice_message_package/voice_message_package.dart';
 
 String apiUrl = 'http://localhost:3000';
 String telemetryUrl = 'http://dumb-analytics.akaruineko.space:7634';
@@ -1493,7 +1493,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool loading = true;
   WebSocketChannel? _channel;
   final TextEditingController _messageController = TextEditingController();
-  final Record _audioRecorder = Record();
+  final Record _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   String? _recordingPath;
   late String _tempDir;
@@ -1587,7 +1587,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
         await _audioRecorder.start(
           path: filePath,
-          encoder: AudioEncoder.aacLc,
+          encoder: AudioEncoder.opus,
         );
 
         setState(() {
@@ -1911,7 +1911,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _channel?.sink.close();
     _messageController.dispose();
-    _audioRecorder.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -1986,7 +1985,7 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.top(color: Colors.grey.shade300),
+              border: Border.all(color: Colors.grey.shade300),
             ),
             child: Row(
               children: [
