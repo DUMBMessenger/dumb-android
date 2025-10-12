@@ -11,10 +11,10 @@ import 'package:just_audio/just_audio.dart';
 import 'package:mime/mime.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:audio_recorder/audio_recorder.dart';
 import 'package:dumb_android/l10n/app_localizations.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:voice_message_package/voice_message_package.dart';
 
 String apiUrl = 'http://localhost:3000';
 String telemetryUrl = 'http://dumb-analytics.akaruineko.space:7634';
@@ -1493,19 +1493,24 @@ class _ChatScreenState extends State<ChatScreen> {
   bool loading = true;
   WebSocketChannel? _channel;
   final TextEditingController _messageController = TextEditingController();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final Record _audioRecorder = Record();
   bool _isRecording = false;
   String? _recordingPath;
+  late String _tempDir;
 
   @override
   void initState() {
     super.initState();
     _loadMessages();
     _connectWebSocket();
-    _requestPermissions();
+    _initRecorder();
   }
 
-  Future<void> _requestPermissions() async {
+  Future<void> _initRecorder() async {
+    final tempDir = await getTemporaryDirectory();
+    _tempDir = tempDir.path;
+    
+    // Запрашиваем разрешения
     await Permission.microphone.request();
     await Permission.storage.request();
   }
@@ -1575,32 +1580,44 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startRecording() async {
     try {
-      if (await Permission.microphone.isGranted) {
-        final tempDir = await getTemporaryDirectory();
-        final filePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.m4a';
-        
-        await AudioRecorder.start(path: filePath, audioOutputFormat: AudioOutputFormat.AAC);
-        
+      if (await _audioRecorder.hasPermission()) {
+        final filePath = '$_tempDir/${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _audioRecorder.start(
+          path: filePath,
+          encoder: AudioEncoder.aacLc, // Используем AAC вместо opus для совместимости
+        );
+
         setState(() {
           _isRecording = true;
           _recordingPath = filePath;
         });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission denied')),
+        );
       }
     } catch (e) {
       print('Error starting recording: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error starting recording: $e')),
+      );
     }
   }
 
   Future<void> _stopRecording() async {
     try {
-      final recording = await AudioRecorder.stop();
+      final path = await _audioRecorder.stop();
       setState(() => _isRecording = false);
-      
-      if (recording != null && recording.path != null) {
-        await _sendVoiceMessage(recording.path!);
+
+      if (path != null) {
+        await _sendVoiceMessage(path);
       }
     } catch (e) {
       print('Error stopping recording: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error stopping recording: $e')),
+      );
     }
   }
 
@@ -1630,6 +1647,16 @@ class _ChatScreenState extends State<ChatScreen> {
           },
           body: jsonEncode({'channel': widget.channel, 'fileId': fileId}),
         );
+
+        // Очищаем временный файл после отправки
+        try {
+          final file = File(filePath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (e) {
+          print('Error deleting temp file: $e');
+        }
       } else {
         setState(() {
           error = json['error'] ?? 'Failed to send voice message';
@@ -1639,16 +1666,6 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         error = 'Error sending voice message: $e';
       });
-    }
-  }
-
-  Future<void> _playVoiceMessage(String filename) async {
-    try {
-      final url = '$apiUrl/api/download/$filename';
-      await _audioPlayer.setUrl(url);
-      await _audioPlayer.play();
-    } catch (e) {
-      print('Error playing voice message: $e');
     }
   }
 
@@ -1702,14 +1719,14 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/$originalName');
-      
+
       final response = await http.get(
         Uri.parse('$apiUrl/api/download/$filename'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       );
-      
+
       await file.writeAsBytes(response.bodyBytes);
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('File saved to ${file.path}')),
       );
@@ -1726,37 +1743,98 @@ class _ChatScreenState extends State<ChatScreen> {
     final file = msg['file'];
     final voice = msg['voice'];
 
-    return ListTile(
-      leading: CircleAvatar(
-        child: Text(username[0].toUpperCase()),
-      ),
-      title: Text(username),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (text.isNotEmpty) Text(text),
-          if (file != null)
-            GestureDetector(
-              onTap: () => _downloadFile(file['filename'], file['originalName']),
-              child: Row(
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  const Icon(Icons.attach_file, size: 16),
-                  const SizedBox(width: 4),
-                  Text('File: ${file['originalName']}'),
+                  CircleAvatar(
+                    child: Text(username[0].toUpperCase()),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    username,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
                 ],
               ),
-            ),
-          if (voice != null)
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.play_arrow, size: 16),
-                  onPressed: () => _playVoiceMessage(voice['filename']),
+              const SizedBox(height: 8),
+              if (text.isNotEmpty)
+                Text(
+                  text,
+                  style: const TextStyle(fontSize: 16),
                 ),
-                const Text('Voice message'),
-              ],
-            ),
-        ],
+              if (file != null)
+                GestureDetector(
+                  onTap: () => _downloadFile(file['filename'], file['originalName']),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.attach_file, size: 20),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              file['originalName'],
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              '${(file['size'] / 1024).toStringAsFixed(1)} KB',
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (voice != null)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  child: VoiceMessageView(
+                    controller: VoiceController(
+                      audioSrc: '$apiUrl/api/download/${voice['filename']}',
+                      isFile: false,
+                      onComplete: () {
+                        // Действие при завершении воспроизведения
+                      },
+                      onPause: () {
+                        // Действие при паузе
+                      },
+                      onPlaying: () {
+                        // Действие при начале воспроизведения
+                      },
+                      onError: (err) {
+                        print('Voice message error: $err');
+                      },
+                    ),
+                    innerPadding: 12,
+                    cornerRadius: 20,
+                    backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                    playedColor: Theme.of(context).colorScheme.primary,
+                    unplayedColor: Colors.grey.shade300,
+                    audioSrcType: AudioSrcType.url,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1765,62 +1843,128 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _channel?.sink.close();
     _messageController.dispose();
-    _audioPlayer.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.channel)),
-      body: Column(children: [
-        if (error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(error, style: const TextStyle(color: Colors.red)),
-          ),
-        Expanded(
-          child: loading
-              ? const Center(child: CircularProgressIndicator())
-              : messages.isEmpty
-                  ? const Center(child: Text('No messages'))
-                  : ListView.builder(
-                      itemCount: messages.length,
-                      itemBuilder: (_, i) => _buildMessage(messages[i]),
+      appBar: AppBar(
+        title: Text(widget.channel),
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      ),
+      body: Column(
+        children: [
+          if (error.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.red.shade100,
+              child: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      error,
+                      style: const TextStyle(color: Colors.red),
                     ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(children: [
-            IconButton(
-              icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-              onPressed: _isRecording ? _stopRecording : _startRecording,
-              tooltip: _isRecording ? 'Stop recording' : 'Start voice message',
-            ),
-            IconButton(
-              icon: const Icon(Icons.attach_file),
-              onPressed: _uploadFile,
-              tooltip: 'Upload file',
-            ),
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                decoration: const InputDecoration(
-                  hintText: 'Type a message...',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (v) => setState(() => message = v),
-                onSubmitted: (_) => _sendMessage(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: () => setState(() => error = ''),
+                  ),
+                ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: message.trim().isEmpty ? null : _sendMessage,
-              tooltip: 'Send',
+          Expanded(
+            child: loading
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Loading messages...'),
+                      ],
+                    ),
+                  )
+                : messages.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.chat, size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              'No messages yet',
+                              style: TextStyle(fontSize: 18, color: Colors.grey),
+                            ),
+                            Text(
+                              'Be the first to send a message!',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        reverse: true,
+                        itemCount: messages.length,
+                        itemBuilder: (_, i) => _buildMessage(messages[i]),
+                      ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.top(color: Colors.grey.shade300), // ИСПРАВЛЕНО: убрано двоеточие
             ),
-          ]),
-        ),
-      ]),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(
+                    _isRecording ? Icons.stop_circle : Icons.mic,
+                    color: _isRecording ? Colors.red : null,
+                  ),
+                  onPressed: _isRecording ? _stopRecording : _startRecording,
+                  tooltip: _isRecording ? 'Stop recording' : 'Start voice message',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.attach_file),
+                  onPressed: _uploadFile,
+                  tooltip: 'Upload file',
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: 'Type a message...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
+                    onChanged: (v) => setState(() => message = v),
+                    onSubmitted: (_) => _sendMessage(),
+                    minLines: 1,
+                    maxLines: 3,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: message.trim().isEmpty ? null : _sendMessage,
+                  tooltip: 'Send',
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -21,6 +21,7 @@ dependencies:
   record: ^6.1.2
   device_info_plus: ^9.1.0
   battery_plus: ^7.0.0
+  voice_message_package: ^2.2.0
 
 dev_dependencies:
   flutter_test:
