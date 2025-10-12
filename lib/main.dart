@@ -1497,6 +1497,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isRecording = false;
   String? _recordingPath;
   late String _tempDir;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  String? _currentlyPlayingUrl;
 
   @override
   void initState() {
@@ -1585,7 +1587,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
         await _audioRecorder.start(
           path: filePath,
-          encoder: AudioEncoder.aacLc, // Используем AAC вместо opus для совместимости
+          encoder: AudioEncoder.aacLc,
         );
 
         setState(() {
@@ -1737,6 +1739,98 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _playVoiceMessage(String filename) async {
+    try {
+      final url = '$apiUrl/api/download/$filename';
+      
+      if (_currentlyPlayingUrl == url && _audioPlayer.playing) {
+        await _audioPlayer.pause();
+        setState(() => _currentlyPlayingUrl = null);
+        return;
+      }
+
+      if (_currentlyPlayingUrl != null) {
+        await _audioPlayer.stop();
+      }
+
+      await _audioPlayer.setUrl(url);
+      await _audioPlayer.play();
+      setState(() => _currentlyPlayingUrl = url);
+
+      _audioPlayer.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          setState(() => _currentlyPlayingUrl = null);
+        }
+      });
+
+    } catch (e) {
+      print('Error playing voice message: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error playing voice message: $e')),
+      );
+    }
+  }
+
+  Widget _buildVoiceMessage(Map<String, dynamic> voice) {
+    final isPlaying = _currentlyPlayingUrl == '$apiUrl/api/download/${voice['filename']}';
+    final duration = voice['duration'] != null 
+        ? '${(voice['duration'] / 60).floor()}:${(voice['duration'] % 60).toString().padLeft(2, '0')}'
+        : '0:00';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(
+              isPlaying ? Icons.pause : Icons.play_arrow,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            onPressed: () => _playVoiceMessage(voice['filename']),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Voice message',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                Text(
+                  duration,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isPlaying)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessage(Map<String, dynamic> msg) {
     final username = msg['from'] ?? 'Unknown';
     final text = msg['text'] ?? '';
@@ -1805,33 +1899,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               if (voice != null)
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  child: VoiceMessageView(
-                    controller: VoiceController(
-                      audioSrc: '$apiUrl/api/download/${voice['filename']}',
-                      isFile: false,
-                      onComplete: () {
-                        // Действие при завершении воспроизведения
-                      },
-                      onPause: () {
-                        // Действие при паузе
-                      },
-                      onPlaying: () {
-                        // Действие при начале воспроизведения
-                      },
-                      onError: (err) {
-                        print('Voice message error: $err');
-                      },
-                    ),
-                    innerPadding: 12,
-                    cornerRadius: 20,
-                    backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                    playedColor: Theme.of(context).colorScheme.primary,
-                    unplayedColor: Colors.grey.shade300,
-                    audioSrcType: AudioSrcType.url,
-                  ),
-                ),
+                _buildVoiceMessage(voice),
             ],
           ),
         ),
@@ -1844,6 +1912,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _channel?.sink.close();
     _messageController.dispose();
     _audioRecorder.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -1917,7 +1986,7 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.top(color: Colors.grey.shade300), // ИСПРАВЛЕНО: убрано двоеточие
+              border: Border.top(color: Colors.grey.shade300),
             ),
             child: Row(
               children: [
