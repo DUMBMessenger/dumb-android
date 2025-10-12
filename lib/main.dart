@@ -15,12 +15,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:dumb_android/l10n/app_localizations.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 String apiUrl = 'http://localhost:3000';
 String telemetryUrl = 'http://dumb-analytics.akaruineko.space:7634';
 String? _cachedToken;
 final Map<String, String> _avatarCache = {};
 final Battery _battery = Battery();
+bool _telemetryEnabled = true;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +33,7 @@ void main() async {
       : themeModeString == 'light'
           ? ThemeMode.light
           : ThemeMode.system;
+  _telemetryEnabled = prefs.getBool('telemetry_enabled') ?? true;
 
   runApp(DumbApp(themeMode: themeMode));
 }
@@ -52,12 +55,22 @@ class _DumbAppState extends State<DumbApp> {
     super.initState();
     _themeMode = widget.themeMode;
     _loadToken();
-    _startTelemetry();
+    _loadTelemetrySetting();
   }
 
   void _loadToken() async {
     final prefs = await SharedPreferences.getInstance();
     _cachedToken = prefs.getString('token');
+  }
+
+  void _loadTelemetrySetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _telemetryEnabled = prefs.getBool('telemetry_enabled') ?? true;
+    });
+    if (_telemetryEnabled) {
+      _startTelemetry();
+    }
   }
 
   void _startTelemetry() async {
@@ -68,6 +81,8 @@ class _DumbAppState extends State<DumbApp> {
   }
 
   Future<void> _sendTelemetry() async {
+    if (!_telemetryEnabled) return;
+    
     try {
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
@@ -75,7 +90,6 @@ class _DumbAppState extends State<DumbApp> {
       final batteryState = await _battery.batteryState;
       final isInBatterySaveMode = await _battery.isInBatterySaveMode;
 
-      // Получаем информацию о хранилище через path_provider
       final directory = await getExternalStorageDirectory();
       final storageStat = directory != null ? await File(directory.path).stat() : null;
       
@@ -135,6 +149,12 @@ class _DumbAppState extends State<DumbApp> {
         mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
   }
 
+  void setTelemetryEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => _telemetryEnabled = enabled);
+    await prefs.setBool('telemetry_enabled', enabled);
+  }
+
   void setServerUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     url = url.replaceAll(RegExp(r'/+$'), '');
@@ -171,6 +191,8 @@ class _DumbAppState extends State<DumbApp> {
         setLocale: setLocale,
         setTheme: setTheme,
         setServerUrl: setServerUrl,
+        setTelemetryEnabled: setTelemetryEnabled,
+        telemetryEnabled: _telemetryEnabled,
         themeMode: _themeMode,
       ),
     );
@@ -181,12 +203,16 @@ class ServerSelectionScreen extends StatefulWidget {
   final void Function(Locale) setLocale;
   final void Function(ThemeMode) setTheme;
   final void Function(String) setServerUrl;
+  final void Function(bool) setTelemetryEnabled;
+  final bool telemetryEnabled;
   final ThemeMode themeMode;
 
   const ServerSelectionScreen({
     required this.setLocale,
     required this.setTheme,
     required this.setServerUrl,
+    required this.setTelemetryEnabled,
+    required this.telemetryEnabled,
     required this.themeMode,
   });
 
@@ -280,6 +306,8 @@ class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
               setLocale: widget.setLocale,
               setTheme: widget.setTheme,
               setServerUrl: widget.setServerUrl,
+              setTelemetryEnabled: widget.setTelemetryEnabled,
+              telemetryEnabled: widget.telemetryEnabled,
               themeMode: widget.themeMode,
             ),
           ),
@@ -350,6 +378,14 @@ class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
                     ),
                   ],
                 ),
+              ),
+              SwitchListTile(
+                title: Text('Telemetry'),
+                value: widget.telemetryEnabled,
+                onChanged: (value) {
+                  widget.setTelemetryEnabled(value);
+                  Navigator.pop(context);
+                },
               ),
             ],
           ),
@@ -443,12 +479,16 @@ class AuthGate extends StatefulWidget {
   final void Function(Locale) setLocale;
   final void Function(ThemeMode) setTheme;
   final void Function(String) setServerUrl;
+  final void Function(bool) setTelemetryEnabled;
+  final bool telemetryEnabled;
   final ThemeMode themeMode;
 
   const AuthGate({
     required this.setLocale,
     required this.setTheme,
     required this.setServerUrl,
+    required this.setTelemetryEnabled,
+    required this.telemetryEnabled,
     required this.themeMode,
   });
 
@@ -486,6 +526,8 @@ class _AuthGateState extends State<AuthGate> {
                 setLocale: widget.setLocale,
                 setTheme: widget.setTheme,
                 setServerUrl: widget.setServerUrl,
+                setTelemetryEnabled: widget.setTelemetryEnabled,
+                telemetryEnabled: widget.telemetryEnabled,
                 themeMode: widget.themeMode,
               ),
             ),
@@ -515,6 +557,8 @@ class _AuthGateState extends State<AuthGate> {
                   setLocale: widget.setLocale,
                   setTheme: widget.setTheme,
                   setServerUrl: widget.setServerUrl,
+                  setTelemetryEnabled: widget.setTelemetryEnabled,
+                  telemetryEnabled: widget.telemetryEnabled,
                   themeMode: widget.themeMode,
                 ),
               ),
@@ -724,6 +768,8 @@ class ChannelsScreen extends StatefulWidget {
   final void Function(Locale) setLocale;
   final void Function(ThemeMode) setTheme;
   final void Function(String) setServerUrl;
+  final void Function(bool) setTelemetryEnabled;
+  final bool telemetryEnabled;
   final ThemeMode themeMode;
 
   const ChannelsScreen({
@@ -731,6 +777,8 @@ class ChannelsScreen extends StatefulWidget {
     required this.setLocale,
     required this.setTheme,
     required this.setServerUrl,
+    required this.setTelemetryEnabled,
+    required this.telemetryEnabled,
     required this.themeMode,
   });
 
@@ -836,6 +884,8 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
           setLocale: widget.setLocale,
           setTheme: widget.setTheme,
           setServerUrl: widget.setServerUrl,
+          setTelemetryEnabled: widget.setTelemetryEnabled,
+          telemetryEnabled: widget.telemetryEnabled,
           themeMode: widget.themeMode,
         ),
       ),
@@ -847,6 +897,89 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
       context: context,
       builder: (context) => ProfileSettingsDialog(token: widget.token),
     );
+  }
+
+  void _showSettings() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppLocalizations.of(context)!.settings),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.language),
+                trailing: DropdownButton<Locale>(
+                  value: Localizations.localeOf(context),
+                  onChanged: (Locale? newLocale) {
+                    if (newLocale != null) {
+                      widget.setLocale(newLocale);
+                      Navigator.pop(context);
+                    }
+                  },
+                  items: AppLocalizations.supportedLocales.map((Locale locale) {
+                    return DropdownMenuItem<Locale>(
+                      value: locale,
+                      child: Text(_getLanguageName(locale)),
+                    );
+                  }).toList(),
+                ),
+              ),
+              ListTile(
+                title: Text(AppLocalizations.of(context)!.theme),
+                trailing: DropdownButton<ThemeMode>(
+                  value: widget.themeMode,
+                  onChanged: (ThemeMode? newTheme) {
+                    if (newTheme != null) {
+                      widget.setTheme(newTheme);
+                      Navigator.pop(context);
+                    }
+                  },
+                  items: [
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text(AppLocalizations.of(context)!.system),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text(AppLocalizations.of(context)!.light),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text(AppLocalizations.of(context)!.dark),
+                    ),
+                  ],
+                ),
+              ),
+              SwitchListTile(
+                title: Text('Telemetry'),
+                value: widget.telemetryEnabled,
+                onChanged: (value) {
+                  widget.setTelemetryEnabled(value);
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(AppLocalizations.of(context)!.close),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getLanguageName(Locale locale) {
+    switch (locale.languageCode) {
+      case 'en': return 'English';
+      case 'ru': return 'Русский';
+      case 'uk': return 'украинский';
+      default: return locale.languageCode;
+    }
   }
 
   @override
@@ -870,6 +1003,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
             icon: const Icon(Icons.person),
             onPressed: _showProfileSettings,
             tooltip: loc.profile,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _showSettings,
+            tooltip: loc.settings,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -1095,7 +1233,7 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
       if (json['success'] == true) {
         setState(() {
           secret = json['secret'] ?? '';
-          qrCodeUrl = json['qrCodeUrl'] ?? '';
+          qrCodeUrl = json['qrCode'] ?? '';
         });
       } else {
         setState(() {
@@ -1111,17 +1249,15 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
     }
   }
 
-  Future<void> _enable2FA() async {
-    if (token.isEmpty) return;
-    
-    setState(() => loading = true);
+  Future<void> _verifyAndEnable() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
     try {
       final resp = await http.post(
-        Uri.parse('$apiUrl/2fa/enable'),
-        headers: {
-          'Authorization': 'Bearer ${widget.token}',
-          'Content-Type': 'application/json'
-        },
+        Uri.parse('$apiUrl/2fa/verify-and-enable'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
         body: jsonEncode({'token': token}),
       );
       final json = jsonDecode(resp.body);
@@ -1133,7 +1269,7 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
         });
       } else {
         setState(() {
-          error = json['error'] ?? 'Failed to enable 2FA';
+          error = json['error'] ?? 'Invalid token';
         });
       }
     } catch (e) {
@@ -1148,60 +1284,64 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Setup Two-Factor Authentication'),
-      content: loading && !setupCompleted
-          ? const Center(child: CircularProgressIndicator())
-          : setupCompleted
-              ? const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.green, size: 48),
-                    SizedBox(height: 16),
-                    Text('2FA enabled successfully!'),
-                  ],
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (qrCodeUrl.isNotEmpty)
-                      Column(
-                        children: [
-                          Image.network(qrCodeUrl),
-                          const SizedBox(height: 16),
-                          const Text('Scan this QR code with your authenticator app'),
-                          const SizedBox(height: 16),
-                          const Text('Or enter this secret manually:'),
-                          SelectableText(
-                            secret,
-                            style: const TextStyle(fontFamily: 'monospace'),
-                          ),
-                        ],
+      title: const Text('Enable Two-Factor Authentication'),
+      content: setupCompleted
+          ? const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 48),
+                SizedBox(height: 16),
+                Text('2FA has been enabled successfully!'),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (loading && qrCodeUrl.isEmpty)
+                  const CircularProgressIndicator()
+                else if (qrCodeUrl.isNotEmpty)
+                  Column(
+                    children: [
+                      const Text('Scan this QR code with your authenticator app:'),
+                      const SizedBox(height: 16),
+                      Image.network(qrCodeUrl),
+                      const SizedBox(height: 16),
+                      const Text('Or enter this secret manually:'),
+                      Text(secret, style: const TextStyle(fontFamily: 'monospace')),
+                      const SizedBox(height: 16),
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Verification Code',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (v) => token = v,
                       ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      decoration: const InputDecoration(
-                        labelText: '6-digit code',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) => token = v,
-                    ),
-                    if (error.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(error, style: const TextStyle(color: Colors.red)),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
+                if (error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(error, style: const TextStyle(color: Colors.red)),
+                  ),
+              ],
+            ),
       actions: setupCompleted
-          ? []
+          ? [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ]
           : [
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: loading ? null : _enable2FA,
-                child: const Text('Enable 2FA'),
+                onPressed: loading ? null : _verifyAndEnable,
+                child: loading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
+                    : const Text('Enable'),
               ),
             ],
     );
@@ -1219,33 +1359,32 @@ class TwoFADisableDialog extends StatefulWidget {
 }
 
 class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
-  String password = '';
+  String token = '';
   String error = '';
   bool loading = false;
+  bool disableCompleted = false;
 
   Future<void> _disable2FA() async {
-    if (password.isEmpty) return;
-    
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      error = '';
+    });
     try {
       final resp = await http.post(
         Uri.parse('$apiUrl/2fa/disable'),
-        headers: {
-          'Authorization': 'Bearer ${widget.token}',
-          'Content-Type': 'application/json'
-        },
-        body: jsonEncode({'password': password}),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+        body: jsonEncode({'token': token}),
       );
       final json = jsonDecode(resp.body);
       if (json['success'] == true) {
+        setState(() => disableCompleted = true);
         widget.onStatusChanged();
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('2FA disabled successfully')),
-        );
+        Future.delayed(const Duration(seconds: 2), () {
+          Navigator.pop(context);
+        });
       } else {
         setState(() {
-          error = json['error'] ?? 'Failed to disable 2FA';
+          error = json['error'] ?? 'Invalid token';
         });
       }
     } catch (e) {
@@ -1261,38 +1400,53 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Disable Two-Factor Authentication'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('Enter your password to disable 2FA:'),
-          const SizedBox(height: 16),
-          TextField(
-            decoration: const InputDecoration(
-              labelText: 'Password',
-              border: OutlineInputBorder(),
+      content: disableCompleted
+          ? const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 48),
+                SizedBox(height: 16),
+                Text('2FA has been disabled successfully!'),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Enter your current 2FA code to disable two-factor authentication:'),
+                const SizedBox(height: 16),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Verification Code',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => token = v,
+                ),
+                if (error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(error, style: const TextStyle(color: Colors.red)),
+                  ),
+              ],
             ),
-            obscureText: true,
-            onChanged: (v) => password = v,
-          ),
-          if (error.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(error, style: const TextStyle(color: Colors.red)),
-            ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: loading ? null : _disable2FA,
-          child: loading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-              : const Text('Disable 2FA'),
-        ),
-      ],
+      actions: disableCompleted
+          ? [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ]
+          : [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: loading ? null : _disable2FA,
+                child: loading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
+                    : const Text('Disable'),
+              ),
+            ],
     );
   }
 }
@@ -1300,7 +1454,6 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
 class CreateChannelDialog extends StatefulWidget {
   final String token;
   final VoidCallback onChannelCreated;
-
   const CreateChannelDialog({required this.token, required this.onChannelCreated});
 
   @override
@@ -1308,20 +1461,21 @@ class CreateChannelDialog extends StatefulWidget {
 }
 
 class _CreateChannelDialogState extends State<CreateChannelDialog> {
-  String channelName = '';
-  bool creating = false;
-  String error = '';
+  String name = '', description = '', error = '';
+  bool loading = false;
 
-  Future<void> _createChannel() async {
-    if (channelName.isEmpty) return;
-    setState(() => creating = true);
+  void _create() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
     final resp = await http.post(
-      Uri.parse('$apiUrl/channels/create'),
+      Uri.parse('$apiUrl/channels'),
       headers: {
         'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: jsonEncode({'name': channelName}),
+      body: jsonEncode({'name': name, 'description': description}),
     );
     final json = jsonDecode(resp.body);
     if (json['success'] == true) {
@@ -1329,8 +1483,8 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
       Navigator.pop(context);
     } else {
       setState(() {
-        error = json['error'] ?? '';
-        creating = false;
+        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        loading = false;
       });
     }
   }
@@ -1344,8 +1498,13 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
         children: [
           TextField(
             decoration: InputDecoration(labelText: AppLocalizations.of(context)!.channelName),
-            onChanged: (v) => channelName = v,
-            enabled: !creating,
+            onChanged: (v) => name = v,
+            enabled: !loading,
+          ),
+          TextField(
+            decoration: InputDecoration(labelText: AppLocalizations.of(context)!.description),
+            onChanged: (v) => description = v,
+            enabled: !loading,
           ),
           if (error.isNotEmpty)
             Padding(
@@ -1356,12 +1515,12 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: creating ? null : () => Navigator.pop(context),
+          onPressed: loading ? null : () => Navigator.pop(context),
           child: Text(AppLocalizations.of(context)!.cancel),
         ),
         ElevatedButton(
-          onPressed: creating ? null : _createChannel,
-          child: creating
+          onPressed: loading ? null : _create,
+          child: loading
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
               : Text(AppLocalizations.of(context)!.create),
         ),
@@ -1373,7 +1532,6 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
 class SearchChannelsScreen extends StatefulWidget {
   final String token;
   final VoidCallback onChannelJoined;
-
   const SearchChannelsScreen({required this.token, required this.onChannelJoined});
 
   @override
@@ -1382,43 +1540,37 @@ class SearchChannelsScreen extends StatefulWidget {
 
 class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
   List channels = [];
-  String query = '';
-  String error = '';
-  bool searching = false;
+  String query = '', error = '';
+  bool loading = false;
 
-  Future<void> _searchChannels() async {
-    if (query.isEmpty) return;
-    setState(() => searching = true);
-    final resp = await http.post(
-      Uri.parse('$apiUrl/channels/search'),
-      headers: {
-        'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json'
-      },
-      body: jsonEncode({'query': query}),
+  void _search() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+    final resp = await http.get(
+      Uri.parse('$apiUrl/channels/search?q=$query'),
+      headers: {'Authorization': 'Bearer ${widget.token}'},
     );
     final json = jsonDecode(resp.body);
     if (json['success'] == true) {
       setState(() {
         channels = json['channels'] ?? [];
-        searching = false;
+        loading = false;
       });
     } else {
       setState(() {
-        error = json['error'] ?? '';
-        searching = false;
+        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        loading = false;
       });
     }
   }
 
-  Future<void> _joinChannel(String channelName) async {
+  void _join(String channel) async {
+    setState(() => loading = true);
     final resp = await http.post(
-      Uri.parse('$apiUrl/channels/join'),
-      headers: {
-        'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json'
-      },
-      body: jsonEncode({'channel': channelName}),
+      Uri.parse('$apiUrl/channels/$channel/join'),
+      headers: {'Authorization': 'Bearer ${widget.token}'},
     );
     final json = jsonDecode(resp.body);
     if (json['success'] == true) {
@@ -1426,53 +1578,57 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
       Navigator.pop(context);
     } else {
       setState(() {
-        error = json['error'] ?? '';
+        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        loading = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          decoration: const InputDecoration(
-            hintText: 'Search channels...',
-            border: InputBorder.none,
-          ),
-          onChanged: (v) => query = v,
-          onSubmitted: (_) => _searchChannels(),
+      appBar: AppBar(title: Text(loc.search)),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                decoration: InputDecoration(labelText: loc.search),
+                onChanged: (v) => query = v,
+                onSubmitted: (_) => _search(),
+              ),
+            ),
+            IconButton(
+              onPressed: _search,
+              icon: const Icon(Icons.search),
+            ),
+          ]),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: _searchChannels,
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Text(error, style: const TextStyle(color: Colors.red)),
           ),
-        ],
-      ),
-      body: searching
-          ? const Center(child: CircularProgressIndicator())
-          : Column(children: [
-              if (error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(error, style: const TextStyle(color: Colors.red)),
-                ),
-              Expanded(
-                child: channels.isEmpty
-                    ? const Center(child: Text('No channels found'))
-                    : ListView.builder(
-                        itemCount: channels.length,
-                        itemBuilder: (_, i) => ListTile(
-                          title: Text(channels[i]['name'] ?? ''),
-                          trailing: ElevatedButton(
-                            onPressed: () => _joinChannel(channels[i]['name']),
-                            child: const Text('Join'),
-                          ),
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : channels.isEmpty
+                  ? Center(child: Text(loc.noChannelsFound))
+                  : ListView.builder(
+                      itemCount: channels.length,
+                      itemBuilder: (_, i) => ListTile(
+                        title: Text(channels[i]['name'] ?? ''),
+                        subtitle: Text(channels[i]['description'] ?? ''),
+                        trailing: ElevatedButton(
+                          onPressed: () => _join(channels[i]['name']),
+                          child: Text(loc.join),
                         ),
                       ),
-              ),
-            ]),
+                    ),
+        ),
+      ]),
     );
   }
 }
@@ -1480,7 +1636,6 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
 class ChatScreen extends StatefulWidget {
   final String token;
   final String channel;
-
   const ChatScreen({required this.token, required this.channel});
 
   @override
@@ -1489,31 +1644,25 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   List messages = [];
-  String message = '';
-  String error = '';
+  String message = '', error = '';
   bool loading = true;
   WebSocketChannel? _channel;
-  final TextEditingController _messageController = TextEditingController();
-  final AudioRecorder _audioRecorder = AudioRecorder();
-  bool _isRecording = false;
-  String? _recordingPath;
-  late String _tempDir;
+  final ScrollController _scrollController = ScrollController();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  String? _currentlyPlayingUrl;
+  final Record _audioRecorder = Record();
+  bool _isRecording = false;
+  Timer? _recordingTimer;
+  int _recordingDuration = 0;
 
   @override
   void initState() {
     super.initState();
     _loadMessages();
     _connectWebSocket();
-    _initRecorder();
+    _requestPermissions();
   }
 
-  Future<void> _initRecorder() async {
-    final tempDir = await getTemporaryDirectory();
-    _tempDir = tempDir.path;
-    
-    // Запрашиваем разрешения
+  void _requestPermissions() async {
     await Permission.microphone.request();
     await Permission.storage.request();
   }
@@ -1527,7 +1676,8 @@ class _ChatScreenState extends State<ChatScreen> {
         (message) {
           final data = jsonDecode(message);
           if (data['type'] == 'message' && data['action'] == 'new' && data['channel'] == widget.channel) {
-            _loadMessages();
+            setState(() => messages.add(data['message']));
+            _scrollToBottom();
           }
         },
         onError: (error) {
@@ -1543,9 +1693,20 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _channel?.sink.close();
+    _scrollController.dispose();
+    _audioPlayer.dispose();
+    _stopRecording();
+    _recordingTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadMessages() async {
+    setState(() => loading = true);
     final resp = await http.get(
-      Uri.parse('$apiUrl/messages?channel=${Uri.encodeComponent(widget.channel)}'),
+      Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
       headers: {'Authorization': 'Bearer ${widget.token}'},
     );
     final json = jsonDecode(resp.body);
@@ -1554,85 +1715,57 @@ class _ChatScreenState extends State<ChatScreen> {
         messages = json['messages'] ?? [];
         loading = false;
       });
+      _scrollToBottom();
     } else {
       setState(() {
-        error = json['error'] ?? '';
+        error = json['error'] ?? AppLocalizations.of(context)!.error;
         loading = false;
       });
     }
   }
 
-  Future<void> _sendMessage() async {
-    if (message.isEmpty) return;
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _sendMessage() async {
+    if (message.trim().isEmpty) return;
+    final msg = message;
+    setState(() => message = '');
     final resp = await http.post(
-      Uri.parse('$apiUrl/message'),
+      Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
       headers: {
         'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: jsonEncode({'channel': widget.channel, 'text': message}),
+      body: jsonEncode({'content': msg}),
     );
     final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
-      _messageController.clear();
-      setState(() => message = '');
-    } else {
-      setState(() => error = json['error'] ?? '');
+    if (json['success'] != true) {
+      setState(() {
+        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        message = msg;
+      });
     }
   }
-
-  Future<void> _startRecording() async {
-    try {
-      final hasPermission = await _audioRecorder.hasPermission();
-      if (hasPermission) {
-        final filePath = '$_tempDir/${DateTime.now().millisecondsSinceEpoch}.m4a';
-        await _audioRecorder.start(
-          const RecordConfig(encoder: AudioEncoder.opus),
-          path: filePath,
-        );
-        setState(() {
-          _isRecording = true;
-          _recordingPath = filePath;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission denied')),
-        );
-      }
-    } catch (e) {
-      print('Error starting recording: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error starting recording: $e')),
-      );
-    }
-  }
-
-
-  Future<void> _stopRecording() async {
-    try {
-      final path = await _audioRecorder.stop();
-      setState(() => _isRecording = false);
-      if (path != null) {
-        await _sendVoiceMessage(path);
-      }
-    } catch (e) {
-      print('Error stopping recording: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error stopping recording: $e')),
-      );
-    }
-  }
-
 
   Future<void> _sendVoiceMessage(String filePath) async {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$apiUrl/upload/file'),
+        Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
       );
       request.headers['Authorization'] = 'Bearer ${widget.token}';
       request.files.add(await http.MultipartFile.fromPath(
-        'file',
+        'voice',
         filePath,
       ));
 
@@ -1640,27 +1773,7 @@ class _ChatScreenState extends State<ChatScreen> {
       var responseData = await response.stream.bytesToString();
       var json = jsonDecode(responseData);
 
-      if (json['success'] == true) {
-        final fileId = json['file']['id'];
-        await http.post(
-          Uri.parse('$apiUrl/message'),
-          headers: {
-            'Authorization': 'Bearer ${widget.token}',
-            'Content-Type': 'application/json'
-          },
-          body: jsonEncode({'channel': widget.channel, 'fileId': fileId}),
-        );
-
-        // Очищаем временный файл после отправки
-        try {
-          final file = File(filePath);
-          if (await file.exists()) {
-            await file.delete();
-          }
-        } catch (e) {
-          print('Error deleting temp file: $e');
-        }
-      } else {
+      if (json['success'] != true) {
         setState(() {
           error = json['error'] ?? 'Failed to send voice message';
         });
@@ -1672,368 +1785,227 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _uploadFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.single;
-
+  Future<void> _startRecording() async {
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$apiUrl/upload/file'),
-      );
-      request.headers['Authorization'] = 'Bearer ${widget.token}';
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        file.path!,
-      ));
-
-      var response = await request.send();
-      var responseData = await response.stream.bytesToString();
-      var json = jsonDecode(responseData);
-
-      if (json['success'] == true) {
-        final fileId = json['file']['id'];
-        await http.post(
-          Uri.parse('$apiUrl/message'),
-          headers: {
-            'Authorization': 'Bearer ${widget.token}',
-            'Content-Type': 'application/json'
-          },
-          body: jsonEncode({'channel': widget.channel, 'fileId': fileId}),
+      if (await _audioRecorder.hasPermission()) {
+        final tempDir = await getTemporaryDirectory();
+        final filePath = '${tempDir.path}/voice_message_${DateTime.now().millisecondsSinceEpoch}.ogg';
+        
+        await _audioRecorder.start(
+          path: filePath,
+          encoder: AudioEncoder.opus,
+          bitRate: 128000,
+          samplingRate: 48000,
         );
-      } else {
+        
         setState(() {
-          error = json['error'] ?? 'Failed to upload file';
+          _isRecording = true;
+          _recordingDuration = 0;
+        });
+        
+        _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          setState(() {
+            _recordingDuration = timer.tick;
+          });
         });
       }
     } catch (e) {
       setState(() {
-        error = 'Error uploading file: $e';
+        error = 'Failed to start recording: $e';
       });
     }
   }
 
-  Future<void> _downloadFile(String filename, String originalName) async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/$originalName');
-
-      final response = await http.get(
-        Uri.parse('$apiUrl/download/$filename'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
-
-      await file.writeAsBytes(response.bodyBytes);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('File saved to ${file.path}')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error downloading file: $e')),
-      );
+  Future<void> _stopRecording() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    
+    if (_isRecording) {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _recordingDuration = 0;
+      });
+      
+      if (path != null) {
+        await _sendVoiceMessage(path);
+      }
     }
   }
 
-  Future<void> _playVoiceMessage(String filename) async {
+  Future<void> _playVoiceMessage(String url) async {
     try {
-      final url = '$apiUrl/download/$filename';
-      
-      if (_currentlyPlayingUrl == url && _audioPlayer.playing) {
-        await _audioPlayer.pause();
-        setState(() => _currentlyPlayingUrl = null);
-        return;
-      }
-
-      if (_currentlyPlayingUrl != null) {
-        await _audioPlayer.stop();
-      }
-
       await _audioPlayer.setUrl(url);
       await _audioPlayer.play();
-      setState(() => _currentlyPlayingUrl = url);
-
-      _audioPlayer.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
-          setState(() => _currentlyPlayingUrl = null);
-        }
-      });
-
     } catch (e) {
-      print('Error playing voice message: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error playing voice message: $e')),
-      );
+      setState(() {
+        error = 'Failed to play voice message: $e';
+      });
     }
   }
 
-  Widget _buildVoiceMessage(Map<String, dynamic> voice) {
-    final isPlaying = _currentlyPlayingUrl == '$apiUrl/download/${voice['filename']}';
-    final duration = voice['duration'] != null 
-        ? '${(voice['duration'] / 60).floor()}:${(voice['duration'] % 60).toString().padLeft(2, '0')}'
-        : '0:00';
+  Widget _buildMessageContent(Map msg) {
+    final content = msg['content'] ?? '';
+    final attachments = msg['attachments'] ?? [];
+    final voiceMessage = msg['voiceMessage'];
 
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: Icon(
-              isPlaying ? Icons.pause : Icons.play_arrow,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            onPressed: () => _playVoiceMessage(voice['filename']),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    if (voiceMessage != null && voiceMessage['url'] != null) {
+      final mimeType = lookupMimeType(voiceMessage['url']) ?? '';
+      if (mimeType.startsWith('audio/')) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  'Voice message',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.play_arrow),
+                  onPressed: () => _playVoiceMessage(voiceMessage['url']),
                 ),
-                Text(
-                  duration,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSecondaryContainer.withOpacity(0.7),
-                  ),
-                ),
+                const Text('Voice message'),
               ],
             ),
-          ),
-          if (isPlaying)
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).colorScheme.primary,
-                ),
+            if (content.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(content),
               ),
+          ],
+        );
+      }
+    }
+
+    final List<Widget> contentWidgets = [];
+    
+    if (content.isNotEmpty) {
+      contentWidgets.add(Text(content));
+    }
+
+    for (final attachment in attachments) {
+      final url = attachment['url'];
+      final mimeType = lookupMimeType(url) ?? '';
+      
+      if (mimeType.startsWith('image/')) {
+        contentWidgets.add(Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: CachedNetworkImage(
+            imageUrl: url,
+            placeholder: (context, url) => Container(
+              width: 200,
+              height: 150,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Center(child: CircularProgressIndicator()),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessage(Map<String, dynamic> msg) {
-    final username = msg['from'] ?? 'Unknown';
-    final text = msg['text'] ?? '';
-    final file = msg['file'];
-    final voice = msg['voice'];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: Card(
-        elevation: 2,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    child: Text(username[0].toUpperCase()),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    username,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
+            errorWidget: (context, url, error) => Container(
+              width: 200,
+              height: 150,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(height: 8),
-              if (text.isNotEmpty)
-                Text(
-                  text,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              if (file != null)
-                GestureDetector(
-                  onTap: () => _downloadFile(file['filename'], file['originalName']),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.attach_file, size: 20),
-                        const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              file['originalName'],
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              '${(file['size'] / 1024).toStringAsFixed(1)} KB',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              if (voice != null)
-                _buildVoiceMessage(voice),
-            ],
+              child: const Center(child: Icon(Icons.error)),
+            ),
+            width: 200,
+            height: 150,
+            fit: BoxFit.cover,
           ),
-        ),
-      ),
-    );
-  }
+        ));
+      } else {
+        contentWidgets.add(Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: Text('[Attachment: ${attachment['filename']}]'),
+        ));
+      }
+    }
 
-  @override
-  void dispose() {
-    _channel?.sink.close();
-    _messageController.dispose();
-    _audioPlayer.dispose();
-    super.dispose();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: contentWidgets,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.channel),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      ),
-      body: Column(
-        children: [
-          if (error.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(8),
-              color: Colors.red.shade100,
-              child: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.red),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      error,
-                      style: const TextStyle(color: Colors.red),
+      appBar: AppBar(title: Text(widget.channel)),
+      body: Column(children: [
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Text(error, style: const TextStyle(color: Colors.red)),
+          ),
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : messages.isEmpty
+                  ? Center(child: Text(loc.noMessages))
+                  : ListView.builder(
+                      controller: _scrollController,
+                      itemCount: messages.length,
+                      itemBuilder: (_, i) {
+                        final msg = messages[i];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundImage: _getAvatarImage(msg['author']?['avatar']),
+                            child: msg['author']?['avatar'] == null
+                                ? Text((msg['author']?['username'] ?? '?')[0].toUpperCase())
+                                : null,
+                          ),
+                          title: Text(msg['author']?['username'] ?? '?'),
+                          subtitle: _buildMessageContent(msg),
+                          trailing: Text(_formatTimestamp(msg['timestamp'])),
+                        );
+                      },
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    onPressed: () => setState(() => error = ''),
-                  ),
-                ],
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(children: [
+            IconButton(
+              icon: Icon(_isRecording ? Icons.stop : Icons.mic),
+              onPressed: _isRecording ? _stopRecording : _startRecording,
+              color: _isRecording ? Colors.red : null,
+            ),
+            if (_isRecording)
+              Text('$_recordingDuration s'),
+            Expanded(
+              child: TextField(
+                decoration: InputDecoration(
+                  labelText: loc.typeMessage,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (v) => message = v,
+                onSubmitted: (_) => _sendMessage(),
               ),
             ),
-          Expanded(
-            child: loading
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Loading messages...'),
-                      ],
-                    ),
-                  )
-                : messages.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.chat, size: 64, color: Colors.grey),
-                            SizedBox(height: 16),
-                            Text(
-                              'No messages yet',
-                              style: TextStyle(fontSize: 18, color: Colors.grey),
-                            ),
-                            Text(
-                              'Be the first to send a message!',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        reverse: true,
-                        itemCount: messages.length,
-                        itemBuilder: (_, i) => _buildMessage(messages[i]),
-                      ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: Colors.grey.shade300),
+            IconButton(
+              onPressed: _sendMessage,
+              icon: const Icon(Icons.send),
             ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    _isRecording ? Icons.stop_circle : Icons.mic,
-                    color: _isRecording ? Colors.red : null,
-                  ),
-                  onPressed: _isRecording ? _stopRecording : _startRecording,
-                  tooltip: _isRecording ? 'Stop recording' : 'Start voice message',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  onPressed: _uploadFile,
-                  tooltip: 'Upload file',
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                    onChanged: (v) => setState(() => message = v),
-                    onSubmitted: (_) => _sendMessage(),
-                    minLines: 1,
-                    maxLines: 3,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: message.trim().isEmpty ? null : _sendMessage,
-                  tooltip: 'Send',
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+          ]),
+        ),
+      ]),
     );
+  }
+
+  ImageProvider? _getAvatarImage(String? avatarUrl) {
+    if (avatarUrl == null) return null;
+    if (_avatarCache.containsKey(avatarUrl)) {
+      return NetworkImage(_avatarCache[avatarUrl]!);
+    }
+    _avatarCache[avatarUrl] = avatarUrl;
+    return NetworkImage(avatarUrl);
+  }
+
+  String _formatTimestamp(String timestamp) {
+    try {
+      final dt = DateTime.parse(timestamp).toLocal();
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return timestamp;
+    }
   }
 }
