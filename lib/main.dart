@@ -1649,7 +1649,7 @@ class _ChatScreenState extends State<ChatScreen> {
   WebSocketChannel? _channel;
   final ScrollController _scrollController = ScrollController();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  final Record _audioRecorder = Record();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   Timer? _recordingTimer;
   int _recordingDuration = 0;
@@ -1787,22 +1787,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startRecording() async {
     try {
-      if (await _audioRecorder.hasPermission()) {
+      final hasPermission = await _audioRecorder.hasPermission();
+      if (hasPermission) {
         final tempDir = await getTemporaryDirectory();
         final filePath = '${tempDir.path}/voice_message_${DateTime.now().millisecondsSinceEpoch}.ogg';
-        
         await _audioRecorder.start(
+          const RecordConfig(encoder: AudioEncoder.opus, bitRate: 128000, sampleRate: 48000),
           path: filePath,
-          encoder: AudioEncoder.opus,
-          bitRate: 128000,
-          samplingRate: 48000,
         );
-        
         setState(() {
           _isRecording = true;
           _recordingDuration = 0;
         });
-        
         _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
           setState(() {
             _recordingDuration = timer.tick;
@@ -1819,19 +1815,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _stopRecording() async {
     _recordingTimer?.cancel();
     _recordingTimer = null;
-    
     if (_isRecording) {
       final path = await _audioRecorder.stop();
       setState(() {
         _isRecording = false;
         _recordingDuration = 0;
       });
-      
       if (path != null) {
         await _sendVoiceMessage(path);
       }
     }
   }
+
+
 
   Future<void> _playVoiceMessage(String url) async {
     try {
