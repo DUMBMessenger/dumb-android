@@ -58,5 +58,7 @@
   "dark": "Dark",
   "close": "Close",
   "serverName": "Server name",
-  "saveServer": "Save server"
+  "saveServer": "Save server",
+  "description": "Description",
+  "noChannelsFound": "No channels found"
 }

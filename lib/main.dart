@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:dumb_api_dart/dumb_api_dart.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
@@ -16,13 +16,15 @@ import 'package:dumb_android/l10n/app_localizations.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:http/http.dart' as http;
 
 String apiUrl = 'http://localhost:3000';
-String telemetryUrl = 'https://dumb-analytics.akaruineko.space:7634';
+String telemetryUrl = 'http://dumb-analytics.akaruineko.space:7634';
 String? _cachedToken;
 final Map<String, String> _avatarCache = {};
 final Battery _battery = Battery();
 bool _telemetryEnabled = true;
+late ChatClient _chatClient;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,6 +63,9 @@ class _DumbAppState extends State<DumbApp> {
   void _loadToken() async {
     final prefs = await SharedPreferences.getInstance();
     _cachedToken = prefs.getString('token');
+    if (_cachedToken != null) {
+      _chatClient = ChatClient(baseUrl: apiUrl, token: _cachedToken);
+    }
   }
 
   void _loadTelemetrySetting() async {
@@ -296,27 +301,24 @@ class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
 
     setState(() => _loading = true);
     try {
-      final resp = await http.get(Uri.parse('$url/ping'));
-      if (resp.statusCode == 200) {
-        widget.setServerUrl(url);
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AuthGate(
-              setLocale: widget.setLocale,
-              setTheme: widget.setTheme,
-              setServerUrl: widget.setServerUrl,
-              setTelemetryEnabled: widget.setTelemetryEnabled,
-              telemetryEnabled: widget.telemetryEnabled,
-              themeMode: widget.themeMode,
-            ),
+      final client = ChatClient(baseUrl: url);
+      // Test connection by trying to get channels
+      await client.getChannels();
+      
+      widget.setServerUrl(url);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AuthGate(
+            setLocale: widget.setLocale,
+            setTheme: widget.setTheme,
+            setServerUrl: widget.setServerUrl,
+            setTelemetryEnabled: widget.setTelemetryEnabled,
+            telemetryEnabled: widget.telemetryEnabled,
+            themeMode: widget.themeMode,
           ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.serverUnreachable)),
-        );
-      }
+        ),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${AppLocalizations.of(context)!.connectionError}: $e')),
@@ -512,31 +514,29 @@ class _AuthGateState extends State<AuthGate> {
     _cachedToken = token;
     if (token != null) {
       try {
-        final resp = await http.get(
-          Uri.parse('$apiUrl/channels'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-        final json = jsonDecode(resp.body);
-        if (resp.statusCode == 200 && json['success'] == true) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChannelsScreen(
-                token: token!,
-                setLocale: widget.setLocale,
-                setTheme: widget.setTheme,
-                setServerUrl: widget.setServerUrl,
-                setTelemetryEnabled: widget.setTelemetryEnabled,
-                telemetryEnabled: widget.telemetryEnabled,
-                themeMode: widget.themeMode,
-              ),
+        _chatClient = ChatClient(baseUrl: apiUrl, token: token);
+        await _chatClient.getChannels();
+        
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChannelsScreen(
+              token: token!,
+              setLocale: widget.setLocale,
+              setTheme: widget.setTheme,
+              setServerUrl: widget.setServerUrl,
+              setTelemetryEnabled: widget.setTelemetryEnabled,
+              telemetryEnabled: widget.telemetryEnabled,
+              themeMode: widget.themeMode,
             ),
-          );
-          return;
-        }
-      } catch (e) {}
-      prefs.remove('token');
-      _cachedToken = null;
+          ),
+        );
+        return;
+      } catch (e) {
+        print('Token validation failed: $e');
+        prefs.remove('token');
+        _cachedToken = null;
+      }
     }
     setState(() => loading = false);
   }
@@ -549,6 +549,7 @@ class _AuthGateState extends State<AuthGate> {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('token', t);
             _cachedToken = t;
+            _chatClient = ChatClient(baseUrl: apiUrl, token: t);
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
@@ -586,33 +587,66 @@ class _AuthScreenState extends State<AuthScreen> {
       loading = true;
       error = '';
     });
-    final url = isLogin ? '$apiUrl/login' : '$apiUrl/register';
-    final resp = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'username': username,
-        'password': password,
-        if (requires2FA) 'twoFactorToken': twoFactorToken
-      }),
-    );
-    final json = jsonDecode(resp.body);
     
-    if (resp.statusCode == 200 && json['success'] == true) {
-      if (json['token'] != null) {
-        widget.onLogin(json['token']);
-      } else if (json['requires2FA'] == true) {
-        setState(() {
-          requires2FA = true;
-          sessionId = json['sessionId'] ?? '';
-          loading = false;
-        });
+    try {
+      final client = ChatClient(baseUrl: apiUrl);
+      
+      if (isLogin) {
+        final result = await client.login(
+          username, 
+          password, 
+          twoFactorToken: requires2FA ? twoFactorToken : null
+        );
+        
+        if (result.success) {
+          widget.onLogin(result.token!);
+        } else if (result.requires2FA) {
+          setState(() {
+            requires2FA = true;
+            sessionId = result.sessionId ?? '';
+            loading = false;
+          });
+        } else {
+          setState(() {
+            error = result.message ?? 'Login failed';
+            loading = false;
+          });
+        }
+      } else {
+        // Registration
+        final result = await client.register(username, password);
+        if (result.success) {
+          // Auto-login after registration
+          final loginResult = await client.login(username, password);
+          if (loginResult.success) {
+            widget.onLogin(loginResult.token!);
+          } else {
+            setState(() {
+              error = 'Registration successful but login failed';
+              loading = false;
+            });
+          }
+        } else {
+          setState(() {
+            error = 'Registration failed';
+            loading = false;
+          });
+        }
       }
-    } else {
-      String errorMessage = json['error'] ?? json['message'] ?? AppLocalizations.of(context)!.error;
+    } catch (e) {
+      String errorMessage = 'Authentication failed';
+      if (e is AuthException) {
+        errorMessage = e.message;
+      } else if (e is ChatException) {
+        errorMessage = e.message;
+      } else {
+        errorMessage = e.toString();
+      }
+      
       if (errorMessage.contains('user exists') || errorMessage.contains('already exists')) {
         errorMessage = 'User already exists';
       }
+      
       setState(() {
         error = errorMessage;
         loading = false;
@@ -625,21 +659,22 @@ class _AuthScreenState extends State<AuthScreen> {
       loading = true;
       error = '';
     });
-    final resp = await http.post(
-      Uri.parse('$apiUrl/2fa/verify-login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'username': username,
-        'sessionId': sessionId,
-        'twoFactorToken': twoFactorToken
-      }),
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true && json['token'] != null) {
-      widget.onLogin(json['token']);
-    } else {
+    
+    try {
+      final client = ChatClient(baseUrl: apiUrl);
+      final result = await client.verify2FALogin(username, sessionId, twoFactorToken);
+      
+      if (result.success) {
+        widget.onLogin(result.token!);
+      } else {
+        setState(() {
+          error = result.message ?? '2FA verification failed';
+          loading = false;
+        });
+      }
+    } catch (e) {
       setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        error = e.toString();
         loading = false;
       });
     }
@@ -787,7 +822,7 @@ class ChannelsScreen extends StatefulWidget {
 }
 
 class _ChannelsScreenState extends State<ChannelsScreen> {
-  List channels = [];
+  List<Channel> channels = [];
   String error = '';
   bool loading = true;
   WebSocketChannel? _channel;
@@ -801,9 +836,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 
   void _connectWebSocket() {
     try {
-      final wsUrl = apiUrl.replaceFirst('http', 'ws');
-      final uri = Uri.parse('$wsUrl?token=${_cachedToken}');
-      _channel = WebSocketChannel.connect(uri);
+      _channel = _chatClient.createWebSocketChannel();
       _channel!.stream.listen(
         (message) {
           final data = jsonDecode(message);
@@ -832,19 +865,15 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 
   Future<void> _loadChannels() async {
     setState(() => loading = true);
-    final resp = await http.get(
-      Uri.parse('$apiUrl/channels'),
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
+    try {
+      final channelsList = await _chatClient.getChannels();
       setState(() {
-        channels = json['channels'] ?? [];
+        channels = channelsList;
         loading = false;
       });
-    } else {
+    } catch (e) {
       setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        error = e.toString();
         loading = false;
       });
     }
@@ -854,7 +883,6 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
     showDialog(
       context: context,
       builder: (context) => CreateChannelDialog(
-        token: widget.token,
         onChannelCreated: _loadChannels,
       ),
     );
@@ -865,7 +893,6 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => SearchChannelsScreen(
-          token: widget.token,
           onChannelJoined: _loadChannels,
         ),
       ),
@@ -895,7 +922,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
   void _showProfileSettings() {
     showDialog(
       context: context,
-      builder: (context) => ProfileSettingsDialog(token: widget.token),
+      builder: (context) => ProfileSettingsDialog(),
     );
   }
 
@@ -1030,11 +1057,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                     : ListView.builder(
                         itemCount: channels.length,
                         itemBuilder: (_, i) => ListTile(
-                          title: Text(channels[i]['name'] ?? ''),
+                          title: Text(channels[i].name),
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ChatScreen(token: widget.token, channel: channels[i]['name']),
+                              builder: (_) => ChatScreen(channel: channels[i].name),
                             ),
                           ),
                         ),
@@ -1046,8 +1073,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 }
 
 class ProfileSettingsDialog extends StatefulWidget {
-  final String token;
-  const ProfileSettingsDialog({required this.token});
+  const ProfileSettingsDialog();
 
   @override
   State<ProfileSettingsDialog> createState() => _ProfileSettingsDialogState();
@@ -1068,16 +1094,10 @@ class _ProfileSettingsDialogState extends State<ProfileSettingsDialog> {
   Future<void> _load2FAStatus() async {
     setState(() => twoFactorLoading = true);
     try {
-      final resp = await http.get(
-        Uri.parse('$apiUrl/2fa/status'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
-      final json = jsonDecode(resp.body);
-      if (json['success'] == true) {
-        setState(() {
-          twoFactorEnabled = json['enabled'] ?? false;
-        });
-      }
+      final enabled = await _chatClient.get2FAStatus();
+      setState(() {
+        twoFactorEnabled = enabled;
+      });
     } catch (e) {
       print('Failed to load 2FA status: $e');
     } finally {
@@ -1099,30 +1119,13 @@ class _ProfileSettingsDialogState extends State<ProfileSettingsDialog> {
     });
 
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$apiUrl/upload/avatar'),
+      final file = File(result.files.single.path!);
+      await _chatClient.uploadAvatar(file);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Avatar updated successfully')),
       );
-      request.headers['Authorization'] = 'Bearer ${widget.token}';
-      request.files.add(await http.MultipartFile.fromPath(
-        'avatar',
-        result.files.single.path!,
-      ));
-
-      var response = await request.send();
-      var responseData = await response.stream.bytesToString();
-      var json = jsonDecode(responseData);
-
-      if (json['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Avatar updated successfully')),
-        );
-        Navigator.pop(context);
-      } else {
-        setState(() {
-          error = json['error'] ?? 'Failed to upload avatar';
-        });
-      }
+      Navigator.pop(context);
     } catch (e) {
       setState(() {
         error = 'Error uploading avatar: $e';
@@ -1136,7 +1139,6 @@ class _ProfileSettingsDialogState extends State<ProfileSettingsDialog> {
     showDialog(
       context: context,
       builder: (context) => TwoFASetupDialog(
-        token: widget.token,
         onStatusChanged: _load2FAStatus,
       ),
     );
@@ -1146,7 +1148,6 @@ class _ProfileSettingsDialogState extends State<ProfileSettingsDialog> {
     showDialog(
       context: context,
       builder: (context) => TwoFADisableDialog(
-        token: widget.token,
         onStatusChanged: _load2FAStatus,
       ),
     );
@@ -1199,10 +1200,9 @@ class _ProfileSettingsDialogState extends State<ProfileSettingsDialog> {
 }
 
 class TwoFASetupDialog extends StatefulWidget {
-  final String token;
   final VoidCallback onStatusChanged;
 
-  const TwoFASetupDialog({required this.token, required this.onStatusChanged});
+  const TwoFASetupDialog({required this.onStatusChanged});
 
   @override
   State<TwoFASetupDialog> createState() => _TwoFASetupDialogState();
@@ -1225,24 +1225,14 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
   Future<void> _startSetup() async {
     setState(() => loading = true);
     try {
-      final resp = await http.post(
-        Uri.parse('$apiUrl/2fa/setup'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
-      final json = jsonDecode(resp.body);
-      if (json['success'] == true) {
-        setState(() {
-          secret = json['secret'] ?? '';
-          qrCodeUrl = json['qrCode'] ?? '';
-        });
-      } else {
-        setState(() {
-          error = json['error'] ?? 'Failed to setup 2FA';
-        });
-      }
+      final setup = await _chatClient.setup2FA();
+      setState(() {
+        secret = setup.secret;
+        qrCodeUrl = setup.qrCodeUrl;
+      });
     } catch (e) {
       setState(() {
-        error = 'Error: $e';
+        error = 'Failed to setup 2FA: $e';
       });
     } finally {
       setState(() => loading = false);
@@ -1255,26 +1245,15 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
       error = '';
     });
     try {
-      final resp = await http.post(
-        Uri.parse('$apiUrl/2fa/verify-and-enable'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-        body: jsonEncode({'token': token}),
-      );
-      final json = jsonDecode(resp.body);
-      if (json['success'] == true) {
-        setState(() => setupCompleted = true);
-        widget.onStatusChanged();
-        Future.delayed(const Duration(seconds: 2), () {
-          Navigator.pop(context);
-        });
-      } else {
-        setState(() {
-          error = json['error'] ?? 'Invalid token';
-        });
-      }
+      await _chatClient.enable2FA(token);
+      setState(() => setupCompleted = true);
+      widget.onStatusChanged();
+      Future.delayed(const Duration(seconds: 2), () {
+        Navigator.pop(context);
+      });
     } catch (e) {
       setState(() {
-        error = 'Error: $e';
+        error = 'Failed to enable 2FA: $e';
       });
     } finally {
       setState(() => loading = false);
@@ -1297,48 +1276,42 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
           : Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (loading && qrCodeUrl.isEmpty)
+                if (loading && secret.isEmpty)
                   const CircularProgressIndicator()
-                else if (qrCodeUrl.isNotEmpty)
+                else if (error.isNotEmpty)
+                  Text(error, style: const TextStyle(color: Colors.red))
+                else if (secret.isNotEmpty)
                   Column(
                     children: [
                       const Text('Scan this QR code with your authenticator app:'),
                       const SizedBox(height: 16),
-                      Image.network(qrCodeUrl),
+                      qrCodeUrl.isNotEmpty
+                          ? Image.network(qrCodeUrl)
+                          : const Text('QR code not available'),
                       const SizedBox(height: 16),
                       const Text('Or enter this secret manually:'),
                       Text(secret, style: const TextStyle(fontFamily: 'monospace')),
                       const SizedBox(height: 16),
                       TextField(
                         decoration: const InputDecoration(
-                          labelText: 'Verification Code',
+                          labelText: 'Enter 6-digit code',
                           border: OutlineInputBorder(),
                         ),
-                        onChanged: (v) => token = v,
+                        onChanged: (value) => token = value,
                       ),
                     ],
-                  ),
-                if (error.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(error, style: const TextStyle(color: Colors.red)),
                   ),
               ],
             ),
       actions: setupCompleted
-          ? [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ]
+          ? []
           : [
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: loading ? null : _verifyAndEnable,
+                onPressed: loading || token.length != 6 ? null : _verifyAndEnable,
                 child: loading
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
                     : const Text('Enable'),
@@ -1349,10 +1322,9 @@ class _TwoFASetupDialogState extends State<TwoFASetupDialog> {
 }
 
 class TwoFADisableDialog extends StatefulWidget {
-  final String token;
   final VoidCallback onStatusChanged;
 
-  const TwoFADisableDialog({required this.token, required this.onStatusChanged});
+  const TwoFADisableDialog({required this.onStatusChanged});
 
   @override
   State<TwoFADisableDialog> createState() => _TwoFADisableDialogState();
@@ -1370,26 +1342,15 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
       error = '';
     });
     try {
-      final resp = await http.post(
-        Uri.parse('$apiUrl/2fa/disable'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-        body: jsonEncode({'token': token}),
-      );
-      final json = jsonDecode(resp.body);
-      if (json['success'] == true) {
-        setState(() => disableCompleted = true);
-        widget.onStatusChanged();
-        Future.delayed(const Duration(seconds: 2), () {
-          Navigator.pop(context);
-        });
-      } else {
-        setState(() {
-          error = json['error'] ?? 'Invalid token';
-        });
-      }
+      await _chatClient.disable2FA(token);
+      setState(() => disableCompleted = true);
+      widget.onStatusChanged();
+      Future.delayed(const Duration(seconds: 2), () {
+        Navigator.pop(context);
+      });
     } catch (e) {
       setState(() {
-        error = 'Error: $e';
+        error = 'Failed to disable 2FA: $e';
       });
     } finally {
       setState(() => loading = false);
@@ -1412,14 +1373,14 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
           : Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Enter your current 2FA code to disable two-factor authentication:'),
+                const Text('Enter your 2FA code to disable two-factor authentication:'),
                 const SizedBox(height: 16),
                 TextField(
                   decoration: const InputDecoration(
-                    labelText: 'Verification Code',
+                    labelText: 'Enter 6-digit code',
                     border: OutlineInputBorder(),
                   ),
-                  onChanged: (v) => token = v,
+                  onChanged: (value) => token = value,
                 ),
                 if (error.isNotEmpty)
                   Padding(
@@ -1429,19 +1390,14 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
               ],
             ),
       actions: disableCompleted
-          ? [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ]
+          ? []
           : [
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: loading ? null : _disable2FA,
+                onPressed: loading || token.length != 6 ? null : _disable2FA,
                 child: loading
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
                     : const Text('Disable'),
@@ -1452,59 +1408,47 @@ class _TwoFADisableDialogState extends State<TwoFADisableDialog> {
 }
 
 class CreateChannelDialog extends StatefulWidget {
-  final String token;
   final VoidCallback onChannelCreated;
-  const CreateChannelDialog({required this.token, required this.onChannelCreated});
+
+  const CreateChannelDialog({required this.onChannelCreated});
 
   @override
   State<CreateChannelDialog> createState() => _CreateChannelDialogState();
 }
 
 class _CreateChannelDialogState extends State<CreateChannelDialog> {
-  String name = '', description = '', error = '';
+  String name = '';
   bool loading = false;
+  String error = '';
 
-  void _create() async {
-    setState(() {
-      loading = true;
-      error = '';
-    });
-    final resp = await http.post(
-      Uri.parse('$apiUrl/channels'),
-      headers: {
-        'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'name': name, 'description': description}),
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
+  Future<void> _createChannel() async {
+    if (name.isEmpty) {
+      setState(() => error = 'Channel name is required');
+      return;
+    }
+
+    setState(() => loading = true);
+    try {
+      await _chatClient.createChannel(name);
       widget.onChannelCreated();
       Navigator.pop(context);
-    } else {
-      setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
-        loading = false;
-      });
+    } catch (e) {
+      setState(() => error = e.toString());
+    } finally {
+      setState(() => loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(AppLocalizations.of(context)!.createChannel),
+      title: const Text('Create Channel'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
-            decoration: InputDecoration(labelText: AppLocalizations.of(context)!.channelName),
+            decoration: const InputDecoration(labelText: 'Channel Name'),
             onChanged: (v) => name = v,
-            enabled: !loading,
-          ),
-          TextField(
-            decoration: InputDecoration(labelText: AppLocalizations.of(context)!.description),
-            onChanged: (v) => description = v,
-            enabled: !loading,
           ),
           if (error.isNotEmpty)
             Padding(
@@ -1515,14 +1459,14 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: loading ? null : () => Navigator.pop(context),
-          child: Text(AppLocalizations.of(context)!.cancel),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: loading ? null : _create,
+          onPressed: loading ? null : _createChannel,
           child: loading
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-              : Text(AppLocalizations.of(context)!.create),
+              : const Text('Create'),
         ),
       ],
     );
@@ -1530,129 +1474,128 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
 }
 
 class SearchChannelsScreen extends StatefulWidget {
-  final String token;
   final VoidCallback onChannelJoined;
-  const SearchChannelsScreen({required this.token, required this.onChannelJoined});
+
+  const SearchChannelsScreen({required this.onChannelJoined});
 
   @override
   State<SearchChannelsScreen> createState() => _SearchChannelsScreenState();
 }
 
 class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
-  List channels = [];
-  String query = '', error = '';
+  List<Channel> channels = [];
+  String query = '';
   bool loading = false;
+  String error = '';
 
-  void _search() async {
-    setState(() {
-      loading = true;
-      error = '';
-    });
-    final resp = await http.get(
-      Uri.parse('$apiUrl/channels/search?q=$query'),
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
+  Future<void> _searchChannels() async {
+    if (query.isEmpty) return;
+
+    setState(() => loading = true);
+    try {
+      final results = await _chatClient.searchChannels(query);
       setState(() {
-        channels = json['channels'] ?? [];
+        channels = results;
         loading = false;
       });
-    } else {
+    } catch (e) {
       setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        error = e.toString();
         loading = false;
       });
     }
   }
 
-  void _join(String channel) async {
-    setState(() => loading = true);
-    final resp = await http.post(
-      Uri.parse('$apiUrl/channels/$channel/join'),
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
+  Future<void> _joinChannel(String channelName) async {
+    try {
+      await _chatClient.joinChannel(channelName);
       widget.onChannelJoined();
       Navigator.pop(context);
-    } else {
-      setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
-        loading = false;
-      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to join channel: $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: Text(loc.search)),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                decoration: InputDecoration(labelText: loc.search),
-                onChanged: (v) => query = v,
-                onSubmitted: (_) => _search(),
-              ),
-            ),
-            IconButton(
-              onPressed: _search,
-              icon: const Icon(Icons.search),
-            ),
-          ]),
-        ),
-        if (error.isNotEmpty)
+      appBar: AppBar(
+        title: const Text('Search Channels'),
+      ),
+      body: Column(
+        children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(error, style: const TextStyle(color: Colors.red)),
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Search channels',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) => query = v,
+                    onSubmitted: (_) => _searchChannels(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: _searchChannels,
+                ),
+              ],
+            ),
           ),
-        Expanded(
-          child: loading
-              ? const Center(child: CircularProgressIndicator())
-              : channels.isEmpty
-                  ? Center(child: Text(loc.noChannelsFound))
-                  : ListView.builder(
-                      itemCount: channels.length,
-                      itemBuilder: (_, i) => ListTile(
-                        title: Text(channels[i]['name'] ?? ''),
-                        subtitle: Text(channels[i]['description'] ?? ''),
-                        trailing: ElevatedButton(
-                          onPressed: () => _join(channels[i]['name']),
-                          child: Text(loc.join),
+          if (error.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Text(error, style: const TextStyle(color: Colors.red)),
+            ),
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : channels.isEmpty
+                    ? const Center(child: Text('No channels found'))
+                    : ListView.builder(
+                        itemCount: channels.length,
+                        itemBuilder: (_, i) => ListTile(
+                          title: Text(channels[i].name),
+                          trailing: ElevatedButton(
+                            onPressed: () => _joinChannel(channels[i].name),
+                            child: const Text('Join'),
+                          ),
                         ),
                       ),
-                    ),
-        ),
-      ]),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class ChatScreen extends StatefulWidget {
-  final String token;
   final String channel;
-  const ChatScreen({required this.token, required this.channel});
+
+  const ChatScreen({required this.channel});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  List messages = [];
-  String message = '', error = '';
+  List<ChatMessage> messages = [];
+  String input = '';
   bool loading = true;
+  String error = '';
   WebSocketChannel? _channel;
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _textController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioRecorder _audioRecorder = AudioRecorder(); // Исправлено на AudioRecorder
   bool _isRecording = false;
-  Timer? _recordingTimer;
-  int _recordingDuration = 0;
+  String? _recordingPath;
 
   @override
   void initState() {
@@ -1669,15 +1612,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _connectWebSocket() {
     try {
-      final wsUrl = apiUrl.replaceFirst('http', 'ws');
-      final uri = Uri.parse('$wsUrl?token=${_cachedToken}');
-      _channel = WebSocketChannel.connect(uri);
+      _channel = _chatClient.createWebSocketChannel();
       _channel!.stream.listen(
         (message) {
           final data = jsonDecode(message);
           if (data['type'] == 'message' && data['action'] == 'new' && data['channel'] == widget.channel) {
-            setState(() => messages.add(data['message']));
-            _scrollToBottom();
+            _loadMessages();
           }
         },
         onError: (error) {
@@ -1697,311 +1637,333 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _channel?.sink.close();
     _scrollController.dispose();
+    _textController.dispose();
     _audioPlayer.dispose();
-    _stopRecording();
-    _recordingTimer?.cancel();
+    _audioRecorder.dispose(); // Освобождение ресурсов
     super.dispose();
   }
 
   Future<void> _loadMessages() async {
-    setState(() => loading = true);
-    final resp = await http.get(
-      Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] == true) {
+    try {
+      final messagesList = await _chatClient.getMessages(widget.channel);
       setState(() {
-        messages = json['messages'] ?? [];
+        messages = messagesList;
         loading = false;
       });
       _scrollToBottom();
-    } else {
+    } catch (e) {
       setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
+        error = e.toString();
         loading = false;
       });
     }
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  void _sendMessage() async {
-    if (message.trim().isEmpty) return;
-    final msg = message;
-    setState(() => message = '');
-    final resp = await http.post(
-      Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
-      headers: {
-        'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'content': msg}),
-    );
-    final json = jsonDecode(resp.body);
-    if (json['success'] != true) {
-      setState(() {
-        error = json['error'] ?? AppLocalizations.of(context)!.error;
-        message = msg;
-      });
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
-  Future<void> _sendVoiceMessage(String filePath) async {
+  Future<void> _sendMessage() async {
+    if (input.trim().isEmpty) return;
+
+    final message = input;
+    _textController.clear();
+    setState(() => input = '');
+
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$apiUrl/channels/${widget.channel}/messages'),
+      await _chatClient.sendMessage(
+        channel: widget.channel,
+        text: message,
       );
-      request.headers['Authorization'] = 'Bearer ${widget.token}';
-      request.files.add(await http.MultipartFile.fromPath(
-        'voice',
-        filePath,
-      ));
-
-      var response = await request.send();
-      var responseData = await response.stream.bytesToString();
-      var json = jsonDecode(responseData);
-
-      if (json['success'] != true) {
-        setState(() {
-          error = json['error'] ?? 'Failed to send voice message';
-        });
-      }
     } catch (e) {
-      setState(() {
-        error = 'Error sending voice message: $e';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send message: $e')),
+      );
+      setState(() => input = message);
+    }
+  }
+
+  Future<void> _pickAndSendFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final file = File(result.files.single.path!);
+
+    try {
+      await _chatClient.uploadFile(file);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File uploaded successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to upload file: $e')),
+      );
     }
   }
 
   Future<void> _startRecording() async {
     try {
-      final hasPermission = await _audioRecorder.hasPermission();
-      if (hasPermission) {
+      if (await _audioRecorder.hasPermission()) {
         final tempDir = await getTemporaryDirectory();
-        final filePath = '${tempDir.path}/voice_message_${DateTime.now().millisecondsSinceEpoch}.ogg';
-        await _audioRecorder.start(
-          const RecordConfig(encoder: AudioEncoder.opus, bitRate: 128000, sampleRate: 48000),
-          path: filePath,
-        );
+        final path = '${tempDir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        
+        await _audioRecorder.start(const RecordConfig(), path: path);
         setState(() {
           _isRecording = true;
-          _recordingDuration = 0;
-        });
-        _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          setState(() {
-            _recordingDuration = timer.tick;
-          });
+          _recordingPath = path;
         });
       }
     } catch (e) {
-      setState(() {
-        error = 'Failed to start recording: $e';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to start recording: $e')),
+      );
     }
   }
 
   Future<void> _stopRecording() async {
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
-    if (_isRecording) {
+    try {
       final path = await _audioRecorder.stop();
-      setState(() {
-        _isRecording = false;
-        _recordingDuration = 0;
-      });
+      setState(() => _isRecording = false);
+
       if (path != null) {
-        await _sendVoiceMessage(path);
+        final file = File(path);
+        // Загружаем аудио файл
+        final fileAttachment = await _chatClient.uploadFile(file);
+        // Отправляем сообщение с файлом вложения
+        await _chatClient.sendMessage(
+          channel: widget.channel,
+          text: 'Voice message',
+          fileId: fileAttachment.filename, // Используем filename как fileId
+        );
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send recording: $e')),
+      );
+    } finally {
+      setState(() {
+        _recordingPath = null;
+      });
     }
   }
 
-
-
-  Future<void> _playVoiceMessage(String url) async {
+  Future<void> _playAudio(String url) async {
     try {
       await _audioPlayer.setUrl(url);
       await _audioPlayer.play();
     } catch (e) {
-      setState(() {
-        error = 'Failed to play voice message: $e';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to play audio: $e')),
+      );
     }
-  }
-
-  Widget _buildMessageContent(Map msg) {
-    final content = msg['content'] ?? '';
-    final attachments = msg['attachments'] ?? [];
-    final voiceMessage = msg['voiceMessage'];
-
-    if (voiceMessage != null && voiceMessage['url'] != null) {
-      final mimeType = lookupMimeType(voiceMessage['url']) ?? '';
-      if (mimeType.startsWith('audio/')) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.play_arrow),
-                  onPressed: () => _playVoiceMessage(voiceMessage['url']),
-                ),
-                const Text('Voice message'),
-              ],
-            ),
-            if (content.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(content),
-              ),
-          ],
-        );
-      }
-    }
-
-    final List<Widget> contentWidgets = [];
-    
-    if (content.isNotEmpty) {
-      contentWidgets.add(Text(content));
-    }
-
-    for (final attachment in attachments) {
-      final url = attachment['url'];
-      final mimeType = lookupMimeType(url) ?? '';
-      
-      if (mimeType.startsWith('image/')) {
-        contentWidgets.add(Padding(
-          padding: const EdgeInsets.only(top: 8.0),
-          child: CachedNetworkImage(
-            imageUrl: url,
-            placeholder: (context, url) => Container(
-              width: 200,
-              height: 150,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Center(child: CircularProgressIndicator()),
-            ),
-            errorWidget: (context, url, error) => Container(
-              width: 200,
-              height: 150,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Center(child: Icon(Icons.error)),
-            ),
-            width: 200,
-            height: 150,
-            fit: BoxFit.cover,
-          ),
-        ));
-      } else {
-        contentWidgets.add(Padding(
-          padding: const EdgeInsets.only(top: 8.0),
-          child: Text('[Attachment: ${attachment['filename']}]'),
-        ));
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: contentWidgets,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.channel)),
-      body: Column(children: [
-        if (error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(error, style: const TextStyle(color: Colors.red)),
+      appBar: AppBar(
+        title: Text(widget.channel),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadMessages,
+            tooltip: 'Refresh',
           ),
-        Expanded(
-          child: loading
-              ? const Center(child: CircularProgressIndicator())
-              : messages.isEmpty
-                  ? Center(child: Text(loc.noMessages))
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: messages.length,
-                      itemBuilder: (_, i) {
-                        final msg = messages[i];
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundImage: _getAvatarImage(msg['author']?['avatar']),
-                            child: msg['author']?['avatar'] == null
-                                ? Text((msg['author']?['username'] ?? '?')[0].toUpperCase())
-                                : null,
-                          ),
-                          title: Text(msg['author']?['username'] ?? '?'),
-                          subtitle: _buildMessageContent(msg),
-                          trailing: Text(_formatTimestamp(msg['timestamp'])),
-                        );
-                      },
-                    ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(children: [
-            IconButton(
-              icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-              onPressed: _isRecording ? _stopRecording : _startRecording,
-              color: _isRecording ? Colors.red : null,
-            ),
-            if (_isRecording)
-              Text('$_recordingDuration s'),
-            Expanded(
-              child: TextField(
-                decoration: InputDecoration(
-                  labelText: loc.typeMessage,
-                  border: const OutlineInputBorder(),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_isRecording)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              color: Colors.red,
+              child: const Center(
+                child: Text(
+                  'Recording...',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
-                onChanged: (v) => message = v,
-                onSubmitted: (_) => _sendMessage(),
               ),
             ),
-            IconButton(
-              onPressed: _sendMessage,
-              icon: const Icon(Icons.send),
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      if (error.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(error, style: const TextStyle(color: Colors.red)),
+                        ),
+                      Expanded(
+                        child: messages.isEmpty
+                            ? Center(child: Text(AppLocalizations.of(context)!.noMessages))
+                            : ListView.builder(
+                                controller: _scrollController,
+                                itemCount: messages.length,
+                                itemBuilder: (_, i) => ChatMessageBubble(
+                                  message: messages[i],
+                                  onPlayAudio: _playAudio,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.attach_file),
+                  onPressed: _pickAndSendFile,
+                  tooltip: 'Attach file',
+                ),
+                IconButton(
+                  icon: Icon(_isRecording ? Icons.stop : Icons.mic),
+                  onPressed: _isRecording ? _stopRecording : _startRecording,
+                  tooltip: _isRecording ? 'Stop recording' : 'Record voice',
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: InputDecoration(
+                      hintText: AppLocalizations.of(context)!.typeMessage,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (v) => setState(() => input = v),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: input.trim().isEmpty ? null : _sendMessage,
+                  tooltip: 'Send message',
+                ),
+              ],
             ),
-          ]),
-        ),
-      ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChatMessageBubble extends StatelessWidget {
+  final ChatMessage message;
+  final void Function(String url) onPlayAudio;
+
+  const ChatMessageBubble({
+    required this.message,
+    required this.onPlayAudio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            child: Text(message.from[0].toUpperCase()),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.from,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  if (message.text.isNotEmpty)
+                    Text(message.text),
+                  if (message.file != null)
+                    _buildFileAttachment(message.file!),
+                  if (message.voice != null)
+                    _buildVoiceAttachment(message.voice!),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatTimestamp(message.timestamp),
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  ImageProvider? _getAvatarImage(String? avatarUrl) {
-    if (avatarUrl == null) return null;
-    if (_avatarCache.containsKey(avatarUrl)) {
-      return NetworkImage(_avatarCache[avatarUrl]!);
-    }
-    _avatarCache[avatarUrl] = avatarUrl;
-    return NetworkImage(avatarUrl);
+  Widget _buildFileAttachment(FileAttachment file) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('📎 File attachment:'),
+          Text('Name: ${file.originalName}'),
+          Text('Size: ${_formatFileSize(file.size)}'),
+          if (file.downloadUrl.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                // TODO: Implement file download
+              },
+              child: const Text('Download'),
+            ),
+        ],
+      ),
+    );
   }
 
-  String _formatTimestamp(String timestamp) {
-    try {
-      final dt = DateTime.parse(timestamp).toLocal();
-      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return timestamp;
-    }
+  Widget _buildVoiceAttachment(VoiceAttachment voice) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.play_arrow),
+            onPressed: () => onPlayAudio(voice.downloadUrl),
+          ),
+          Text('Voice message (${voice.duration}s)'),
+        ],
+      ),
+    );
+  }
+
+  String _formatFileSize(int size) {
+    if (size < 1024) return '$size B';
+    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+
+    if (difference.inMinutes < 1) return 'now';
+    if (difference.inHours < 1) return '${difference.inMinutes}m';
+    if (difference.inDays < 1) return '${difference.inHours}h';
+    if (difference.inDays < 7) return '${difference.inDays}d';
+    
+    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
   }
 }

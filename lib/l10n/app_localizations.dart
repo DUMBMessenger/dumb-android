@@ -507,6 +507,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save server'**
   String get saveServer;
+
+  /// No description provided for @description.
+  ///
+  /// In en, this message translates to:
+  /// **'Description'**
+  String get description;
+
+  /// No description provided for @noChannelsFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No channels found'**
+  String get noChannelsFound;
 }
 
 class _AppLocalizationsDelegate

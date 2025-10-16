@@ -184,4 +184,10 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get saveServer => 'Save server';
+
+  @override
+  String get description => 'Description';
+
+  @override
+  String get noChannelsFound => 'No channels found';
 }
