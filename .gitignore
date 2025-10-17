@@ -11,3 +11,4 @@ build
 android/app/build
 .dart_tool
 android/app/*.jks
+.vscode
