@@ -19,7 +19,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 
 String apiUrl = 'http://localhost:3000';
-String telemetryUrl = 'http://analytics.dumb-msg.xyz:7634';
+String telemetryUrl = 'https://analytics.dumb-msg.xyz:7634';
 String? _cachedToken;
 final Map<String, String> _avatarCache = {};
 final Battery _battery = Battery();
