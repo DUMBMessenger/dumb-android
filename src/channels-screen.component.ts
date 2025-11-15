@@ -1,22 +1,57 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+<<<<<<< HEAD
+=======
+import { FormsModule } from '@angular/forms';
+>>>>>>> 665062c (Capacitor + update :))
 import { ChatClient } from './chat-client';
 
 @Component({
   selector: 'app-channels-screen',
   standalone: true,
+<<<<<<< HEAD
   imports: [CommonModule],
+=======
+  imports: [CommonModule, FormsModule],
+>>>>>>> 665062c (Capacitor + update :))
   template: `
     <div class="channels-container">
       <div class="header">
         <h1>Channels</h1>
         <div class="header-actions">
+<<<<<<< HEAD
           <button class="secondary" (click)="searchChannels()">Search</button>
+=======
+          <button class="secondary" (click)="showSearch = !showSearch">Search</button>
+>>>>>>> 665062c (Capacitor + update :))
           <button class="secondary" (click)="createChannel()">Create</button>
           <button class="icon-button" (click)="openSettings.emit()">⚙️</button>
           <button class="secondary" (click)="logout.emit()">Logout</button>
         </div>
       </div>
+<<<<<<< HEAD
+=======
+
+      <div *ngIf="showSearch" class="search-container">
+        <input 
+          type="text" 
+          [(ngModel)]="searchQuery"
+          placeholder="Search channels..."
+          class="search-input"
+        >
+        <button (click)="performSearch()">Search</button>
+        
+        <div *ngIf="searchResults.length > 0" class="search-results">
+          <div *ngFor="let channel of searchResults" class="search-result-item">
+            <div class="channel-info">
+              <div class="channel-name"># {{channel.name}}</div>
+              <div class="channel-members">{{channel.memberCount || 0}} members</div>
+            </div>
+            <button class="join-btn" (click)="joinChannel(channel.name)">Join</button>
+          </div>
+        </div>
+      </div>
+>>>>>>> 665062c (Capacitor + update :))
       
       <div *ngIf="loading" class="loading">
         <div class="spinner"></div>
@@ -63,6 +98,10 @@ import { ChatClient } from './chat-client';
     .header h1 {
       margin: 0;
       font-size: 24px;
+<<<<<<< HEAD
+=======
+      color: var(--text-primary, #333);
+>>>>>>> 665062c (Capacitor + update :))
     }
 
     .header-actions {
@@ -104,6 +143,53 @@ import { ChatClient } from './chat-client';
       justify-content: center;
     }
 
+<<<<<<< HEAD
+=======
+    .search-container {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color, #eee);
+      background: var(--bg-secondary, #f5f5f5);
+    }
+
+    .dark .search-container {
+      --bg-secondary: #3d3d3d;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid var(--input-border, #ddd);
+      border-radius: 6px;
+      margin-bottom: 12px;
+      background: var(--input-bg, #fff);
+      color: var(--input-color, #333);
+    }
+
+    .search-results {
+      margin-top: 12px;
+    }
+
+    .search-result-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: var(--card-bg, #fff);
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+
+    .join-btn {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+>>>>>>> 665062c (Capacitor + update :))
     .channels-list {
       flex: 1;
       overflow-y: auto;
@@ -163,10 +249,18 @@ import { ChatClient } from './chat-client';
     .empty-state h3 {
       margin-bottom: 8px;
       font-size: 18px;
+<<<<<<< HEAD
+=======
+      color: var(--text-primary, #333);
+>>>>>>> 665062c (Capacitor + update :))
     }
 
     .empty-state p {
       font-size: 14px;
+<<<<<<< HEAD
+=======
+      color: var(--text-secondary, #666);
+>>>>>>> 665062c (Capacitor + update :))
     }
 
     .loading {
@@ -257,12 +351,19 @@ export class ChannelsScreenComponent implements OnInit {
   @Output() openSettings = new EventEmitter();
 
   channels: any[] = [];
+<<<<<<< HEAD
+=======
+  searchResults: any[] = [];
+  searchQuery = '';
+  showSearch = false;
+>>>>>>> 665062c (Capacitor + update :))
   loading = true;
   error = '';
 
   async ngOnInit() {
     if (this.chatClient) {
       await this.loadChannels();
+<<<<<<< HEAD
       this.chatClient.createWebSocketChannel();
       this.chatClient.onMessage((data) => {
         if (data.type === 'message' && data.action === 'new') {
@@ -272,6 +373,26 @@ export class ChannelsScreenComponent implements OnInit {
     }
   }
 
+=======
+      this.setupWebSocket();
+    }
+  }
+
+  setupWebSocket() {
+    if (!this.chatClient) return;
+    
+    this.chatClient.createWebSocketChannel();
+    this.chatClient.onMessage((data) => {
+      if (data.type === 'channel_update') {
+        this.loadChannels();
+      }
+      if (data.type === 'message' && data.action === 'new') {
+        this.loadChannels();
+      }
+    });
+  }
+
+>>>>>>> 665062c (Capacitor + update :))
   async loadChannels() {
     if (!this.chatClient) return;
     
@@ -289,6 +410,7 @@ export class ChannelsScreenComponent implements OnInit {
     this.openChat.emit(channel.name);
   }
 
+<<<<<<< HEAD
   createChannel() {
     const name = prompt('Enter channel name:');
     if (name && this.chatClient) {
@@ -320,6 +442,41 @@ export class ChannelsScreenComponent implements OnInit {
           });
         }
       });
+=======
+  async createChannel() {
+    const name = prompt('Enter channel name:');
+    if (name && this.chatClient) {
+      try {
+        await this.chatClient.createChannel(name);
+        await this.loadChannels();
+      } catch (error: any) {
+        alert(`Failed to create channel: ${error.message}`);
+      }
+    }
+  }
+
+  async performSearch() {
+    if (!this.searchQuery.trim() || !this.chatClient) return;
+
+    try {
+      this.searchResults = await this.chatClient.searchChannels(this.searchQuery);
+    } catch (error: any) {
+      alert(`Search failed: ${error.message}`);
+    }
+  }
+
+  async joinChannel(channelName: string) {
+    if (!this.chatClient) return;
+
+    try {
+      await this.chatClient.joinChannel(channelName);
+      await this.loadChannels();
+      this.showSearch = false;
+      this.searchQuery = '';
+      this.searchResults = [];
+    } catch (error: any) {
+      alert(`Failed to join channel: ${error.message}`);
+>>>>>>> 665062c (Capacitor + update :))
     }
   }
 }

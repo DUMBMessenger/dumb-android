@@ -64,7 +64,11 @@ import { ChatClient } from './chat-client';
     .dark .card { --card-bg: #2d2d2d; }
     .header { text-align: center; margin-bottom: 32px; }
     .form-group { margin-bottom: 20px; }
+<<<<<<< HEAD
     label { display: block; margin-bottom: 8px; font-weight: 500; }
+=======
+    label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-primary, #333); }
+>>>>>>> 665062c (Capacitor + update :))
     input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; background: var(--input-bg, #fff); color: var(--input-color, #333); }
     .dark input { --input-bg: #333; --input-color: #fff; border-color: #555; }
     button { background: #1976d2; color: white; border: none; border-radius: 4px; padding: 12px 24px; cursor: pointer; font-size: 14px; width: 100%; margin-bottom: 12px; }
@@ -80,7 +84,11 @@ import { ChatClient } from './chat-client';
 })
 export class AuthScreenComponent {
   @Input() serverUrl = '';
+<<<<<<< HEAD
   @Output() login = new EventEmitter<string>();
+=======
+  @Output() login = new EventEmitter<{token: string, username: string}>();
+>>>>>>> 665062c (Capacitor + update :))
   @Output() back = new EventEmitter();
 
   username = '';
@@ -100,14 +108,22 @@ export class AuthScreenComponent {
 
     try {
       const client = new ChatClient(this.serverUrl);
+<<<<<<< HEAD
       
       // Используем правильный метод в зависимости от режима
+=======
+>>>>>>> 665062c (Capacitor + update :))
       const result = this.isLogin 
         ? await client.login(this.username, this.password)
         : await client.register(this.username, this.password);
 
       if (result.success) {
+<<<<<<< HEAD
         this.login.emit(result.token);
+=======
+        client.setToken(result.token);
+        this.login.emit({token: result.token, username: this.username});
+>>>>>>> 665062c (Capacitor + update :))
       } else {
         this.error = result.error || 'Authentication failed';
       }

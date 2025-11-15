@@ -3,6 +3,11 @@ export class ChatClient {
   private token: string | null;
   private ws: WebSocket | null = null;
   private messageHandlers = new Set<(data: any) => void>();
+<<<<<<< HEAD
+=======
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+>>>>>>> 665062c (Capacitor + update :))
 
   constructor(baseUrl: string, token: string | null = null) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -49,6 +54,7 @@ export class ChatClient {
     });
   }
 
+<<<<<<< HEAD
   async login(username: string, password: string, twoFactorToken: string | null = null) {
     const data: any = { username, password };
     if (twoFactorToken) {
@@ -61,6 +67,28 @@ export class ChatClient {
     });
   }
 
+=======
+async login(username: string, password: string, twoFactorToken: string | null = null) {
+  const data: any = { username, password };
+  if (twoFactorToken) {
+    data.twoFactorToken = twoFactorToken;
+  }
+
+  const result = await this.request('/api/login', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+
+  if (result.success && result.token) {
+    this.token = result.token;
+    localStorage.setItem('username', username);
+    localStorage.setItem('token', result.token);
+  }
+
+  return result;
+}
+
+>>>>>>> 665062c (Capacitor + update :))
   async verify2FALogin(username: string, sessionId: string, twoFactorToken: string) {
     return this.request('/api/2fa/verify-login', {
       method: 'POST',
@@ -225,9 +253,27 @@ export class ChatClient {
       this.ws.close();
     }
 
+<<<<<<< HEAD
     const wsUrl = this.baseUrl.replace('http', 'ws') + `?token=${this.token}`;
     this.ws = new WebSocket(wsUrl);
 
+=======
+    const wsUrl = this.baseUrl.replace('http', 'ws') + '/ws';
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      console.log('WebSocket connected');
+      this.reconnectAttempts = 0;
+      
+      if (this.token) {
+        this.ws?.send(JSON.stringify({
+          type: 'auth',
+          token: this.token
+        }));
+      }
+    };
+
+>>>>>>> 665062c (Capacitor + update :))
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -237,11 +283,30 @@ export class ChatClient {
       }
     };
 
+<<<<<<< HEAD
     this.ws.onclose = () => {
       console.log('WebSocket disconnected');
       setTimeout(() => {
         this.createWebSocketChannel();
       }, 5000);
+=======
+    this.ws.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.code, event.reason);
+      
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+        console.log(`Reconnecting in ${delay}ms...`);
+        
+        setTimeout(() => {
+          this.reconnectAttempts++;
+          this.createWebSocketChannel();
+        }, delay);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+>>>>>>> 665062c (Capacitor + update :))
     };
 
     return this.ws;
@@ -252,9 +317,21 @@ export class ChatClient {
     return () => this.messageHandlers.delete(handler);
   }
 
+<<<<<<< HEAD
   close() {
     if (this.ws) {
       this.ws.close();
+=======
+  sendWebSocketMessage(data: any) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  close() {
+    if (this.ws) {
+      this.ws.close(1000, 'Normal closure');
+>>>>>>> 665062c (Capacitor + update :))
       this.ws = null;
     }
     this.messageHandlers.clear();

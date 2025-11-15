@@ -42,7 +42,11 @@
               "outputHashing": "all"
             },
             "development": {
+<<<<<<< HEAD
               "optimization": false,
+=======
+              "optimization": true,
+>>>>>>> 665062c (Capacitor + update :))
               "extractLicenses": false,
               "sourceMap": true
             }
