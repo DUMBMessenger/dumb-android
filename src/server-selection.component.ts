@@ -282,11 +282,16 @@ export class ServerSelectionComponent {
 
   async connectToServer(server: any) {
     this.loading = true;
-    const client = new ChatClient(server.url);
     
     try {
-      await client.createWebSocketChannel();
-      this.connect.emit(server.url);
+      const client = new ChatClient(server.url);
+      const response = await fetch(`${server.url}/api/ping`);
+      
+      if (response.ok) {
+        this.connect.emit(server.url);
+      } else {
+        throw new Error('Server is not responding');
+      }
     } catch (error: any) {
       alert(`Connection failed: ${error.message}`);
     } finally {

@@ -1,36 +1,23 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-<<<<<<< HEAD
-=======
 import { FormsModule } from '@angular/forms';
->>>>>>> 665062c (Capacitor + update :))
 import { ChatClient } from './chat-client';
 
 @Component({
   selector: 'app-channels-screen',
   standalone: true,
-<<<<<<< HEAD
-  imports: [CommonModule],
-=======
   imports: [CommonModule, FormsModule],
->>>>>>> 665062c (Capacitor + update :))
   template: `
     <div class="channels-container">
       <div class="header">
         <h1>Channels</h1>
         <div class="header-actions">
-<<<<<<< HEAD
-          <button class="secondary" (click)="searchChannels()">Search</button>
-=======
           <button class="secondary" (click)="showSearch = !showSearch">Search</button>
->>>>>>> 665062c (Capacitor + update :))
           <button class="secondary" (click)="createChannel()">Create</button>
           <button class="icon-button" (click)="openSettings.emit()">⚙️</button>
           <button class="secondary" (click)="logout.emit()">Logout</button>
         </div>
       </div>
-<<<<<<< HEAD
-=======
 
       <div *ngIf="showSearch" class="search-container">
         <input 
@@ -51,7 +38,6 @@ import { ChatClient } from './chat-client';
           </div>
         </div>
       </div>
->>>>>>> 665062c (Capacitor + update :))
       
       <div *ngIf="loading" class="loading">
         <div class="spinner"></div>
@@ -98,10 +84,7 @@ import { ChatClient } from './chat-client';
     .header h1 {
       margin: 0;
       font-size: 24px;
-<<<<<<< HEAD
-=======
       color: var(--text-primary, #333);
->>>>>>> 665062c (Capacitor + update :))
     }
 
     .header-actions {
@@ -143,8 +126,6 @@ import { ChatClient } from './chat-client';
       justify-content: center;
     }
 
-<<<<<<< HEAD
-=======
     .search-container {
       padding: 16px;
       border-bottom: 1px solid var(--border-color, #eee);
@@ -189,7 +170,6 @@ import { ChatClient } from './chat-client';
       cursor: pointer;
     }
 
->>>>>>> 665062c (Capacitor + update :))
     .channels-list {
       flex: 1;
       overflow-y: auto;
@@ -249,18 +229,12 @@ import { ChatClient } from './chat-client';
     .empty-state h3 {
       margin-bottom: 8px;
       font-size: 18px;
-<<<<<<< HEAD
-=======
       color: var(--text-primary, #333);
->>>>>>> 665062c (Capacitor + update :))
     }
 
     .empty-state p {
       font-size: 14px;
-<<<<<<< HEAD
-=======
       color: var(--text-secondary, #666);
->>>>>>> 665062c (Capacitor + update :))
     }
 
     .loading {
@@ -351,48 +325,18 @@ export class ChannelsScreenComponent implements OnInit {
   @Output() openSettings = new EventEmitter();
 
   channels: any[] = [];
-<<<<<<< HEAD
-=======
   searchResults: any[] = [];
   searchQuery = '';
   showSearch = false;
->>>>>>> 665062c (Capacitor + update :))
   loading = true;
   error = '';
 
   async ngOnInit() {
     if (this.chatClient) {
       await this.loadChannels();
-<<<<<<< HEAD
-      this.chatClient.createWebSocketChannel();
-      this.chatClient.onMessage((data) => {
-        if (data.type === 'message' && data.action === 'new') {
-          this.loadChannels();
-        }
-      });
     }
   }
 
-=======
-      this.setupWebSocket();
-    }
-  }
-
-  setupWebSocket() {
-    if (!this.chatClient) return;
-    
-    this.chatClient.createWebSocketChannel();
-    this.chatClient.onMessage((data) => {
-      if (data.type === 'channel_update') {
-        this.loadChannels();
-      }
-      if (data.type === 'message' && data.action === 'new') {
-        this.loadChannels();
-      }
-    });
-  }
-
->>>>>>> 665062c (Capacitor + update :))
   async loadChannels() {
     if (!this.chatClient) return;
     
@@ -410,39 +354,6 @@ export class ChannelsScreenComponent implements OnInit {
     this.openChat.emit(channel.name);
   }
 
-<<<<<<< HEAD
-  createChannel() {
-    const name = prompt('Enter channel name:');
-    if (name && this.chatClient) {
-      this.chatClient.createChannel(name).then(() => {
-        this.loadChannels();
-      }).catch((error: any) => {
-        alert(`Failed to create channel: ${error.message}`);
-      });
-    }
-  }
-
-  searchChannels() {
-    const query = prompt('Search channels:');
-    if (query && this.chatClient) {
-      this.chatClient.searchChannels(query).then(channels => {
-        if (channels.length === 0) {
-          alert('No channels found');
-          return;
-        }
-        
-        const channelList = channels.map((c: any) => `• ${c.name}`).join('\n');
-        const joinName = prompt(`Found channels:\n${channelList}\n\nEnter channel name to join:`);
-        
-        if (joinName && this.chatClient) {
-          this.chatClient.joinChannel(joinName).then(() => {
-            this.loadChannels();
-          }).catch((error: any) => {
-            alert(`Failed to join channel: ${error.message}`);
-          });
-        }
-      });
-=======
   async createChannel() {
     const name = prompt('Enter channel name:');
     if (name && this.chatClient) {
@@ -476,7 +387,6 @@ export class ChannelsScreenComponent implements OnInit {
       this.searchResults = [];
     } catch (error: any) {
       alert(`Failed to join channel: ${error.message}`);
->>>>>>> 665062c (Capacitor + update :))
     }
   }
 }

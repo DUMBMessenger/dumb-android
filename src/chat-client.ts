@@ -1,13 +1,8 @@
 export class ChatClient {
   public baseUrl: string;
   private token: string | null;
-  private ws: WebSocket | null = null;
-  private messageHandlers = new Set<(data: any) => void>();
-<<<<<<< HEAD
-=======
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
->>>>>>> 665062c (Capacitor + update :))
+  private cache = new Map<string, { data: any; timestamp: number }>();
+  private CACHE_TTL = 30000;
 
   constructor(baseUrl: string, token: string | null = null) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -16,11 +11,19 @@ export class ChatClient {
 
   setToken(token: string) {
     this.token = token;
+    if (token) {
+      localStorage.setItem('token', token);
+    }
   }
 
   private async request(endpoint: string, options: any = {}) {
     const url = `${this.baseUrl}${endpoint}`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     const config = {
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...options.headers
@@ -34,14 +37,16 @@ export class ChatClient {
 
     try {
       const response = await fetch(url, config);
-      const data = await response.json();
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
-      return data;
+      return await response.json();
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error('API request failed:', error);
       throw error;
     }
@@ -54,41 +59,26 @@ export class ChatClient {
     });
   }
 
-<<<<<<< HEAD
   async login(username: string, password: string, twoFactorToken: string | null = null) {
     const data: any = { username, password };
     if (twoFactorToken) {
       data.twoFactorToken = twoFactorToken;
     }
-    
-    return this.request('/api/login', {
+
+    const result = await this.request('/api/login', {
       method: 'POST',
       body: JSON.stringify(data)
     });
+
+    if (result.success && result.token) {
+      this.token = result.token;
+      localStorage.setItem('username', username);
+      localStorage.setItem('token', result.token);
+    }
+
+    return result;
   }
 
-=======
-async login(username: string, password: string, twoFactorToken: string | null = null) {
-  const data: any = { username, password };
-  if (twoFactorToken) {
-    data.twoFactorToken = twoFactorToken;
-  }
-
-  const result = await this.request('/api/login', {
-    method: 'POST',
-    body: JSON.stringify(data)
-  });
-
-  if (result.success && result.token) {
-    this.token = result.token;
-    localStorage.setItem('username', username);
-    localStorage.setItem('token', result.token);
-  }
-
-  return result;
-}
-
->>>>>>> 665062c (Capacitor + update :))
   async verify2FALogin(username: string, sessionId: string, twoFactorToken: string) {
     return this.request('/api/2fa/verify-login', {
       method: 'POST',
@@ -119,12 +109,29 @@ async login(username: string, password: string, twoFactorToken: string | null = 
     return result.enabled;
   }
 
-  async getChannels() {
+  async getChannels(forceRefresh = false): Promise<any[]> {
+    const cacheKey = 'channels';
+    
+    if (!forceRefresh) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+        return cached.data;
+      }
+    }
+
     const result = await this.request('/api/channels');
-    return result.channels || [];
+    const channels = result.channels || [];
+    
+    this.cache.set(cacheKey, {
+      data: channels,
+      timestamp: Date.now()
+    });
+    
+    return channels;
   }
 
   async createChannel(name: string) {
+    this.cache.delete('channels');
     return this.request('/api/channels/create', {
       method: 'POST',
       body: JSON.stringify({ name })
@@ -140,18 +147,36 @@ async login(username: string, password: string, twoFactorToken: string | null = 
   }
 
   async joinChannel(channel: string) {
+    this.cache.delete('channels');
     return this.request('/api/channels/join', {
       method: 'POST',
       body: JSON.stringify({ channel })
     });
   }
 
-  async getMessages(channel: string, limit = 50) {
+  async getMessages(channel: string, limit = 50, forceRefresh = false): Promise<any[]> {
+    const cacheKey = `messages:${channel}:${limit}`;
+    
+    if (!forceRefresh) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+        return cached.data;
+      }
+    }
+
     const result = await this.request(`/api/messages?channel=${encodeURIComponent(channel)}&limit=${limit}`);
-    return result.messages || [];
+    const messages = result.messages || [];
+    
+    this.cache.set(cacheKey, {
+      data: messages,
+      timestamp: Date.now()
+    });
+    
+    return messages;
   }
 
   async sendMessage(message: { channel: string; text: string; replyTo?: string | null; fileId?: string | null; voiceMessage?: string | null }) {
+    this.cache.delete(`messages:${message.channel}:50`);
     return this.request('/api/message', {
       method: 'POST',
       body: JSON.stringify(message)
@@ -159,6 +184,7 @@ async login(username: string, password: string, twoFactorToken: string | null = 
   }
 
   async sendVoiceMessage(channel: string, voiceFilename: string) {
+    this.cache.delete(`messages:${channel}:50`);
     return this.request('/api/message/voice-only', {
       method: 'POST',
       body: JSON.stringify({
@@ -172,65 +198,111 @@ async login(username: string, password: string, twoFactorToken: string | null = 
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${this.baseUrl}/api/upload/file`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`
-      },
-      body: formData
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Upload failed');
+    try {
+      const response = await fetch(`${this.baseUrl}/api/upload/file`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: formData
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      return data.file;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-
-    return data.file;
   }
 
   async uploadAvatar(file: File) {
     const formData = new FormData();
     formData.append('avatar', file);
 
-    const response = await fetch(`${this.baseUrl}/api/upload/avatar`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`
-      },
-      body: formData
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Upload failed');
+    try {
+      const response = await fetch(`${this.baseUrl}/api/upload/avatar`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: formData
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-
-    return data;
   }
 
   async uploadVoiceMessage(voiceBlob: Blob, filename: string) {
     const formData = new FormData();
     formData.append('voice', voiceBlob, filename);
 
-    const response = await fetch(`${this.baseUrl}/api/upload/voice/${filename}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`
-      },
-      body: formData
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Voice upload failed');
+    try {
+      const response = await fetch(`${this.baseUrl}/api/upload/voice/${filename}`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: formData
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Voice upload failed');
+      }
+
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-
-    return data;
   }
 
   async getUserInfo(username: string) {
+    const cacheKey = `user:${username}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
     const result = await this.request(`/api/user/${username}`);
-    return result.user;
+    const user = result.user;
+    
+    this.cache.set(cacheKey, {
+      data: user,
+      timestamp: Date.now()
+    });
+    
+    return user;
   }
 
   async enableNotifications() {
@@ -248,93 +320,47 @@ async login(username: string, password: string, twoFactorToken: string | null = 
     }
   }
 
-  createWebSocketChannel() {
-    if (this.ws) {
-      this.ws.close();
-    }
+  createWebSocketChannel(): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/ws';
+      const ws = new WebSocket(wsUrl);
 
-<<<<<<< HEAD
-    const wsUrl = this.baseUrl.replace('http', 'ws') + `?token=${this.token}`;
-    this.ws = new WebSocket(wsUrl);
-
-=======
-    const wsUrl = this.baseUrl.replace('http', 'ws') + '/ws';
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.onopen = () => {
-      console.log('WebSocket connected');
-      this.reconnectAttempts = 0;
-      
-      if (this.token) {
-        this.ws?.send(JSON.stringify({
-          type: 'auth',
-          token: this.token
-        }));
-      }
-    };
-
->>>>>>> 665062c (Capacitor + update :))
-    this.ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        this.messageHandlers.forEach(handler => handler(data));
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    };
-
-<<<<<<< HEAD
-    this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setTimeout(() => {
-        this.createWebSocketChannel();
+      const timeoutId = setTimeout(() => {
+        ws.close();
+        reject(new Error('WebSocket connection timeout'));
       }, 5000);
-=======
-    this.ws.onclose = (event) => {
-      console.log('WebSocket disconnected:', event.code, event.reason);
-      
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-        console.log(`Reconnecting in ${delay}ms...`);
+
+      ws.onopen = () => {
+        clearTimeout(timeoutId);
+        console.log('WebSocket connected');
         
-        setTimeout(() => {
-          this.reconnectAttempts++;
-          this.createWebSocketChannel();
-        }, delay);
-      }
-    };
+        if (this.token) {
+          ws.send(JSON.stringify({
+            type: 'auth',
+            token: this.token
+          }));
+        }
+        
+        resolve(ws);
+      };
 
-    this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
->>>>>>> 665062c (Capacitor + update :))
-    };
-
-    return this.ws;
+      ws.onerror = (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      };
+    });
   }
 
   onMessage(handler: (data: any) => void) {
-    this.messageHandlers.add(handler);
-    return () => this.messageHandlers.delete(handler);
+    return () => {};
   }
 
-<<<<<<< HEAD
-  close() {
-    if (this.ws) {
-      this.ws.close();
-=======
-  sendWebSocketMessage(data: any) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-    }
+  clearCache() {
+    this.cache.clear();
   }
 
-  close() {
-    if (this.ws) {
-      this.ws.close(1000, 'Normal closure');
->>>>>>> 665062c (Capacitor + update :))
-      this.ws = null;
-    }
-    this.messageHandlers.clear();
+  invalidateCache(key: string) {
+    this.cache.delete(key);
   }
 
   private urlBase64ToUint8Array(base64String: string) {
