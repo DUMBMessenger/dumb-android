@@ -1,4 +1,3 @@
-// AuthScreen.jsx
 import {
   IonPage,
   IonHeader,
@@ -13,9 +12,10 @@ import {
   IonCardContent,
   IonText
 } from '@ionic/react';
-import { useState } from 'react';
+import { useState, memo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
-export default function AuthScreen({ serverUrl, onLogin, onNavigate }) {
+function AuthScreen({ serverUrl, onLogin, onNavigate }) {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +51,7 @@ export default function AuthScreen({ serverUrl, onLogin, onNavigate }) {
       }
 
       if (result.success && result.token) {
-        onLogin(result.token);
+        onLogin(result.token, form.username);
       } else {
         setError(result.message || 'Authentication failed');
       }
@@ -63,79 +63,183 @@ export default function AuthScreen({ serverUrl, onLogin, onNavigate }) {
     }
   };
 
+  const cardVariants = {
+    hidden: { opacity: 0, y: 30 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: { duration: 0.5, ease: "easeOut" }
+    }
+  };
+
+  const errorVariants = {
+    hidden: { opacity: 0, height: 0 },
+    visible: { 
+      opacity: 1, 
+      height: "auto",
+      transition: { duration: 0.3 }
+    }
+  };
+
   return (
     <IonPage>
       <IonHeader>
-        <IonToolbar>
+        <IonToolbar style={{ '--background': '#2d004d', '--color': 'white' }}>
           <IonTitle>{isLogin ? 'Login' : 'Register'}</IonTitle>
         </IonToolbar>
       </IonHeader>
       
       <IonContent>
         <div style={{ padding: '16px', maxWidth: '400px', margin: '0 auto' }}>
-          <IonCard className="auth-card">
-            <IonCardContent>
-              <h2 style={{ textAlign: 'center', marginBottom: '20px' }} className="auth-title">
-                {isLogin ? 'Welcome Back' : 'Create Account'}
-              </h2>
-              
-              <IonItem>
-                <IonLabel position="stacked">Username</IonLabel>
-                <IonInput
-                  value={form.username}
-                  onIonInput={e => setForm(prev => ({ ...prev, username: e.detail.value }))}
-                />
-              </IonItem>
-              
-              <IonItem>
-                <IonLabel position="stacked">Password</IonLabel>
-                <IonInput
-                  type="password"
-                  value={form.password}
-                  onIonInput={e => setForm(prev => ({ ...prev, password: e.detail.value }))}
-                />
-              </IonItem>
-              
-              {error && (
-                <IonText color="danger" style={{ display: 'block', margin: '10px 0', textAlign: 'center' }}>
-                  {error}
-                </IonText>
-              )}
-              
-              <IonButton
-                expand="block"
-                onClick={handleAuth}
-                disabled={loading}
-                style={{ marginTop: '16px' }}
-              >
-                {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
-              </IonButton>
-              
-              <IonButton
-                expand="block"
-                fill="clear"
-                onClick={() => {
-                  setIsLogin(!isLogin);
-                  setError('');
-                  setForm({ username: '', password: '' });
-                }}
-                disabled={loading}
-              >
-                {isLogin ? 'Need an account? Register' : 'Have an account? Login'}
-              </IonButton>
-            </IonCardContent>
-          </IonCard>
+          <motion.div
+            variants={cardVariants}
+            initial="hidden"
+            animate="visible"
+            key={isLogin ? 'login' : 'register'}
+          >
+            <IonCard style={{ 
+              '--background': 'var(--ion-color-light)',
+              'border-radius': '16px',
+              'box-shadow': '0 4px 20px rgba(45, 0, 77, 0.1)'
+            }}>
+              <IonCardContent>
+                <h2 style={{ 
+                  textAlign: 'center', 
+                  marginBottom: '20px',
+                  color: '#2d004d',
+                  fontWeight: '600'
+                }}>
+                  {isLogin ? 'Welcome Back' : 'Create Account'}
+                </h2>
+                
+                <IonItem style={{ 
+                  '--border-style': 'none', 
+                  '--padding-start': '0', 
+                  '--inner-padding-end': '0',
+                  '--background': 'transparent',
+                  marginBottom: '16px'
+                }}>
+                  <IonLabel position="stacked" style={{ fontSize: '16px', marginBottom: '8px', fontWeight: '500' }}>Username</IonLabel>
+                  <IonInput
+                    value={form.username}
+                    onIonInput={e => setForm(prev => ({ ...prev, username: e.detail.value }))}
+                    placeholder="Enter username"
+                    style={{ 
+                      '--border-radius': '12px',
+                      '--padding-start': '16px',
+                      '--padding-end': '16px',
+                      '--background': 'var(--ion-color-medium)',
+                      '--color': 'var(--ion-color-dark)'
+                    }}
+                  />
+                </IonItem>
+                
+                <IonItem style={{ 
+                  '--border-style': 'none', 
+                  '--padding-start': '0', 
+                  '--inner-padding-end': '0',
+                  '--background': 'transparent',
+                  marginBottom: '24px'
+                }}>
+                  <IonLabel position="stacked" style={{ fontSize: '16px', marginBottom: '8px', fontWeight: '500' }}>Password</IonLabel>
+                  <IonInput
+                    type="password"
+                    value={form.password}
+                    onIonInput={e => setForm(prev => ({ ...prev, password: e.detail.value }))}
+                    placeholder="Enter password"
+                    style={{ 
+                      '--border-radius': '12px',
+                      '--padding-start': '16px',
+                      '--padding-end': '16px',
+                      '--background': 'var(--ion-color-medium)',
+                      '--color': 'var(--ion-color-dark)'
+                    }}
+                  />
+                </IonItem>
+                
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      variants={errorVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="hidden"
+                    >
+                      <IonText color="danger" style={{ 
+                        display: 'block', 
+                        margin: '10px 0', 
+                        textAlign: 'center',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        background: 'var(--ion-color-danger-tint)'
+                      }}>
+                        {error}
+                      </IonText>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                
+                <IonButton
+                  expand="block"
+                  onClick={handleAuth}
+                  disabled={loading}
+                  style={{ 
+                    marginTop: '16px',
+                    '--border-radius': '12px',
+                    '--background': '#2d004d',
+                    '--background-activated': '#4a0072',
+                    '--background-focused': '#4a0072',
+                    height: '48px',
+                    fontSize: '16px',
+                    fontWeight: '600'
+                  }}
+                >
+                  {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
+                </IonButton>
+                
+                <IonButton
+                  expand="block"
+                  fill="clear"
+                  onClick={() => {
+                    setIsLogin(!isLogin);
+                    setError('');
+                    setForm({ username: '', password: '' });
+                  }}
+                  disabled={loading}
+                  style={{ 
+                    marginTop: '8px',
+                    '--color': '#2d004d',
+                    fontSize: '14px'
+                  }}
+                >
+                  {isLogin ? 'Need an account? Register' : 'Have an account? Login'}
+                </IonButton>
+              </IonCardContent>
+            </IonCard>
+          </motion.div>
 
-          <div style={{ textAlign: 'center', marginTop: '20px' }}>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            style={{ textAlign: 'center', marginTop: '20px' }}
+          >
             <IonButton 
               fill="outline" 
               onClick={() => onNavigate('server')}
+              style={{
+                '--border-color': '#2d004d',
+                '--color': '#2d004d',
+                '--border-radius': '12px'
+              }}
             >
               Back to Server Selection
             </IonButton>
-          </div>
+          </motion.div>
         </div>
       </IonContent>
     </IonPage>
   );
 }
+
+export default memo(AuthScreen);

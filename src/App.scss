@@ -19,7 +19,7 @@
 }
 
 ion-app {
-  font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 ion-title {
@@ -46,7 +46,7 @@ ion-button:hover {
   --box-shadow: var(--elevation-2);
 }
 
-ion-button[fill=clear] {
+ion-button[fill="clear"] {
   --padding-start: 12px;
   --padding-end: 12px;
   --box-shadow: none;
@@ -291,7 +291,7 @@ p {
 }
 
 .ripple::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 50%;
   left: 50%;
@@ -318,6 +318,7 @@ p {
     opacity: 1;
   }
 }
+
 @media (prefers-color-scheme: dark) {
   :root {
     --ion-color-primary: #d0bcff;
@@ -330,117 +331,145 @@ p {
     --ion-color-medium: #938f99;
     --ion-color-dark: #e6e1e5;
   }
+  
   .auth-card {
     --background: var(--ion-surface);
     --color: var(--ion-on-surface);
   }
+  
   .own-message .message-text {
     background: var(--ion-color-primary);
     color: #1d1b20;
   }
+  
   .server-item {
     --background: var(--ion-color-light);
     --color: var(--ion-on-surface);
   }
+  
   .message-input-container {
     background: var(--ion-surface);
     border-top-color: #332d41;
     color: var(--ion-on-surface);
   }
+  
   .error-message {
     background: #37000a;
     border-left-color: var(--ion-color-danger);
     color: var(--ion-color-danger);
   }
+  
   ion-content {
     --color: var(--ion-on-surface);
   }
+  
   ion-item {
     --color: var(--ion-on-surface);
     --background: var(--ion-surface);
   }
+  
   ion-label {
     --color: var(--ion-on-surface);
   }
+  
   ion-text {
     --color: var(--ion-on-surface);
   }
+  
   .message-text {
     color: var(--ion-on-surface);
     background: var(--ion-color-light);
   }
+  
   .message-username {
     color: var(--ion-color-primary);
   }
+  
   .message-time {
     color: var(--ion-color-medium);
   }
+  
   .empty-state {
     color: var(--ion-color-medium);
   }
+
   .channels-list h2 {
     color: var(--ion-on-surface);
     font-weight: 500;
   }
+
   .channels-list p {
     color: var(--ion-color-medium);
   }
+
   .channels-list ion-item {
     --border-color: #332d41;
   }
+
   .reply-banner {
     background: var(--ion-color-light);
     color: var(--ion-on-surface);
     border-bottom: 1px solid #332d41;
   }
+
   .reply-banner-content {
     color: var(--ion-color-primary);
   }
+
   .reply-preview {
     color: var(--ion-color-medium);
   }
+
   .reply-preview-message {
     background: var(--ion-color-light);
     color: var(--ion-on-surface);
     border-left: 4px solid var(--ion-color-primary);
   }
+  
   ion-input {
     --color: var(--ion-on-surface);
     --placeholder-color: var(--ion-color-medium);
     --background: var(--ion-surface);
   }
+  
   .message-item {
     --background: var(--ion-surface);
   }
+  
   .message-item.own-message {
     --background: var(--ion-surface);
   }
+  
   ion-list {
     background: transparent;
   }
+  
   .temp-message {
     background: var(--ion-color-light);
     opacity: 0.8;
   }
 }
+
 @media (max-width: 768px) {
   .auth-card {
     margin: 16px;
     box-shadow: var(--elevation-2);
     border-radius: 12px;
   }
+  
   .message-input-container {
     padding: 12px;
   }
+  
   .server-list {
     padding: 12px;
   }
+  
   .server-item {
     border-radius: 8px;
   }
+  
   .message-text {
     max-width: 85%;
   }
 }
-
-/*# sourceMappingURL=App.css.map */

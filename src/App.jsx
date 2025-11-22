@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { IonApp, setupIonicReact } from '@ionic/react';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics } from '@capacitor/haptics';
 
-import ServerSelection from './pages/ServerSelection';
-import AuthScreen from './pages/AuthScreen';
-import Channels from './pages/Channels';
-import Chat from './pages/Chat';
-
 setupIonicReact();
+
+const ServerSelection = lazy(() => import('./pages/ServerSelection'));
+const AuthScreen = lazy(() => import('./pages/AuthScreen'));
+const Channels = lazy(() => import('./pages/Channels'));
+const Chat = lazy(() => import('./pages/Chat'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 export default function MainApp() {
   const [serverUrl, setServerUrl] = useState('');
@@ -30,14 +31,12 @@ export default function MainApp() {
       }
       
       if (permStatus.receive !== 'granted') {
-        console.log('User denied push notifications');
         return;
       }
 
       await PushNotifications.register();
 
       PushNotifications.addListener('registration', (token) => {
-        console.log('Push registration success, token:', token.value);
         setNotificationToken(token.value);
       });
 
@@ -46,8 +45,6 @@ export default function MainApp() {
       });
 
       PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        console.log('Push received:', notification);
-        
         Haptics.vibrate({ duration: 200 });
         
         if (notification.data && notification.data.channel) {
@@ -56,7 +53,6 @@ export default function MainApp() {
       });
 
       PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-        console.log('Push action performed:', notification);
         handleNotificationClick(notification);
       });
 
@@ -92,8 +88,9 @@ export default function MainApp() {
     setServerUrl(url);
   };
 
-  const onLogin = (token) => {
+  const onLogin = (token, username) => {
     localStorage.setItem('token', token);
+    localStorage.setItem('username', username);
     
     if (notificationToken) {
       registerPushToken(token);
@@ -119,8 +116,6 @@ export default function MainApp() {
       if (!response.ok) {
         throw new Error('Failed to register push token');
       }
-      
-      console.log('Push token registered successfully');
     } catch (error) {
       console.error('Error registering push token:', error);
     }
@@ -131,59 +126,37 @@ export default function MainApp() {
   };
 
   const renderScreen = () => {
-    switch (currentScreen) {
-      case 'server':
-        return (
-          <ServerSelection
-            serverUrl={serverUrl}
-            onSetServerUrl={onSetServerUrl}
-            onNavigate={onNavigate}
-            theme={theme}
-            onToggleTheme={onToggleTheme}
-          />
-        );
-      case 'auth':
-        return (
-          <AuthScreen
-            serverUrl={serverUrl}
-            onLogin={onLogin}
-            onNavigate={onNavigate}
-          />
-        );
-      case 'channels':
-        return (
-          <Channels
-            serverUrl={serverUrl}
-            onNavigate={onNavigate}
-            theme={theme}
-            onToggleTheme={onToggleTheme}
-          />
-        );
-      case 'chat':
-        return (
-          <Chat
-            serverUrl={serverUrl}
-            channel={screenParams.channel}
-            onNavigate={onNavigate}
-            notificationToken={notificationToken}
-          />
-        );
-      default:
-        return (
-          <ServerSelection
-            serverUrl={serverUrl}
-            onSetServerUrl={onSetServerUrl}
-            onNavigate={onNavigate}
-            theme={theme}
-            onToggleTheme={onToggleTheme}
-          />
-        );
-    }
+    const screenProps = {
+      serverUrl,
+      onNavigate,
+      theme,
+      onToggleTheme
+    };
+
+    const screens = {
+      server: <ServerSelection {...screenProps} onSetServerUrl={onSetServerUrl} />,
+      auth: <AuthScreen serverUrl={serverUrl} onLogin={onLogin} onNavigate={onNavigate} />,
+      channels: <Channels {...screenProps} />,
+      chat: <Chat serverUrl={serverUrl} channel={screenParams.channel} onNavigate={onNavigate} notificationToken={notificationToken} />,
+      settings: <Settings {...screenProps} />
+    };
+
+    return screens[currentScreen] || screens.server;
   };
 
   return (
     <IonApp className={theme}>
-      {renderScreen()}
+      <Suspense fallback={
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3880ff', animation: 'pulse 1.5s ease-in-out infinite' }}></div>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3880ff', animation: 'pulse 1.5s ease-in-out infinite 0.3s' }}></div>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3880ff', animation: 'pulse 1.5s ease-in-out infinite 0.6s' }}></div>
+          </div>
+        </div>
+      }>
+        {renderScreen()}
+      </Suspense>
     </IonApp>
   );
 }

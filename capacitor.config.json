@@ -1,5 +1,21 @@
 {
   "appId": "xyz.dumbmsg.android",
   "appName": "dumb-android",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "allowNavigation": [
+      "*",
+      "http://*",
+      "https://*",
+      "10.0.2.2",
+      "localhost",
+      "ws://*",
+      "wss://*"
+    ],
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true
+  }
 }
