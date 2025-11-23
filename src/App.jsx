@@ -1,7 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { IonApp, setupIonicReact } from '@ionic/react';
-import { PushNotifications } from '@capacitor/push-notifications';
-import { Haptics } from '@capacitor/haptics';
 
 setupIonicReact();
 
@@ -16,68 +14,6 @@ export default function MainApp() {
   const [theme, setTheme] = useState('light');
   const [currentScreen, setCurrentScreen] = useState('server');
   const [screenParams, setScreenParams] = useState({});
-  const [notificationToken, setNotificationToken] = useState('');
-
-  useEffect(() => {
-    initializePushNotifications();
-  }, []);
-
-  const initializePushNotifications = async () => {
-    try {
-      let permStatus = await PushNotifications.checkPermissions();
-      
-      if (permStatus.receive === 'prompt') {
-        permStatus = await PushNotifications.requestPermissions();
-      }
-      
-      if (permStatus.receive !== 'granted') {
-        return;
-      }
-
-      await PushNotifications.register();
-
-      PushNotifications.addListener('registration', (token) => {
-        setNotificationToken(token.value);
-      });
-
-      PushNotifications.addListener('registrationError', (error) => {
-        console.error('Push registration error:', error);
-      });
-
-      PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        Haptics.vibrate({ duration: 200 });
-        
-        if (notification.data && notification.data.channel) {
-          showLocalNotification(notification);
-        }
-      });
-
-      PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-        handleNotificationClick(notification);
-      });
-
-    } catch (error) {
-      console.error('Push notifications initialization error:', error);
-    }
-  };
-
-  const showLocalNotification = (notification) => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(notification.title || 'New Message', {
-        body: notification.body,
-        icon: '/assets/icon.png',
-        data: notification.data
-      });
-    }
-  };
-
-  const handleNotificationClick = (notification) => {
-    const data = notification.notification.data;
-    if (data && data.channel) {
-      setCurrentScreen('chat');
-      setScreenParams({ channel: data.channel });
-    }
-  };
 
   const onNavigate = (screen, params = {}) => {
     setCurrentScreen(screen);
@@ -91,34 +27,7 @@ export default function MainApp() {
   const onLogin = (token, username) => {
     localStorage.setItem('token', token);
     localStorage.setItem('username', username);
-    
-    if (notificationToken) {
-      registerPushToken(token);
-    }
-    
     onNavigate('channels');
-  };
-
-  const registerPushToken = async (userToken) => {
-    try {
-      const response = await fetch(`${serverUrl}/api/register-push-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${userToken}`
-        },
-        body: JSON.stringify({
-          pushToken: notificationToken,
-          platform: 'android'
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to register push token');
-      }
-    } catch (error) {
-      console.error('Error registering push token:', error);
-    }
   };
 
   const onToggleTheme = () => {
@@ -137,7 +46,7 @@ export default function MainApp() {
       server: <ServerSelection {...screenProps} onSetServerUrl={onSetServerUrl} />,
       auth: <AuthScreen serverUrl={serverUrl} onLogin={onLogin} onNavigate={onNavigate} />,
       channels: <Channels {...screenProps} />,
-      chat: <Chat serverUrl={serverUrl} channel={screenParams.channel} onNavigate={onNavigate} notificationToken={notificationToken} />,
+      chat: <Chat serverUrl={serverUrl} channel={screenParams.channel} onNavigate={onNavigate} />,
       settings: <Settings {...screenProps} />
     };
 

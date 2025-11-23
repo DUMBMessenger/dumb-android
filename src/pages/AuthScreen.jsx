@@ -113,7 +113,7 @@ function AuthScreen({ serverUrl, onLogin, onNavigate }) {
                 </h2>
                 
                 <IonItem style={{ 
-                  '--border-style': 'none', 
+                  '--border-radius': '12px',
                   '--padding-start': '0', 
                   '--inner-padding-end': '0',
                   '--background': 'transparent',
@@ -125,17 +125,18 @@ function AuthScreen({ serverUrl, onLogin, onNavigate }) {
                     onIonInput={e => setForm(prev => ({ ...prev, username: e.detail.value }))}
                     placeholder="Enter username"
                     style={{ 
-                      '--border-radius': '12px',
+                      '--background': 'white',
+                      '--color': 'var(--ion-color-dark)',
                       '--padding-start': '16px',
                       '--padding-end': '16px',
-                      '--background': 'var(--ion-color-medium)',
-                      '--color': 'var(--ion-color-dark)'
+                      'border-radius': '12px',
+                      'border': '1px solid var(--ion-color-medium)'
                     }}
                   />
                 </IonItem>
                 
                 <IonItem style={{ 
-                  '--border-style': 'none', 
+                  '--border-radius': '12px',
                   '--padding-start': '0', 
                   '--inner-padding-end': '0',
                   '--background': 'transparent',
@@ -148,11 +149,12 @@ function AuthScreen({ serverUrl, onLogin, onNavigate }) {
                     onIonInput={e => setForm(prev => ({ ...prev, password: e.detail.value }))}
                     placeholder="Enter password"
                     style={{ 
-                      '--border-radius': '12px',
+                      '--background': 'white',
+                      '--color': 'var(--ion-color-dark)',
                       '--padding-start': '16px',
                       '--padding-end': '16px',
-                      '--background': 'var(--ion-color-medium)',
-                      '--color': 'var(--ion-color-dark)'
+                      'border-radius': '12px',
+                      'border': '1px solid var(--ion-color-medium)'
                     }}
                   />
                 </IonItem>
@@ -164,14 +166,19 @@ function AuthScreen({ serverUrl, onLogin, onNavigate }) {
                       initial="hidden"
                       animate="visible"
                       exit="hidden"
+                      style={{
+                        background: 'rgba(244, 67, 54, 0.1)',
+                        border: '1px solid rgba(244, 67, 54, 0.3)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: '16px'
+                      }}
                     >
                       <IonText color="danger" style={{ 
                         display: 'block', 
-                        margin: '10px 0', 
                         textAlign: 'center',
-                        padding: '8px',
-                        borderRadius: '8px',
-                        background: 'var(--ion-color-danger-tint)'
+                        fontSize: '14px',
+                        fontWeight: '500'
                       }}>
                         {error}
                       </IonText>

@@ -12,15 +12,13 @@ import {
   IonAlert,
   IonRefresher,
   IonRefresherContent,
-  IonSearchbar,
-  IonSegment,
-  IonSegmentButton,
   IonBadge
 } from '@ionic/react';
-import { add, settings, logOut, power, people, globe } from 'ionicons/icons';
+import { add, settings, logOut, people, globe } from 'ionicons/icons';
 import { useState, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { WebSocket } from '@miaz/capacitor-websocket';
+import { CapacitorWebsocket } from '@miaz/capacitor-websocket';
+import Search from './Search';
 
 function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const [channels, setChannels] = useState([]);
@@ -40,7 +38,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     initializeClient();
     setupWebSocket();
     return () => {
-      WebSocket.disconnect({ name: wsName });
+      CapacitorWebsocket.disconnect({ name: wsName });
     };
   }, []);
 
@@ -69,15 +67,15 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
 
       const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
       
-      await WebSocket.build({
+      await CapacitorWebsocket.build({
         name: wsName,
         url: `${wsUrl}?token=${token}`,
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      await WebSocket.applyListeners({ name: wsName });
+      await CapacitorWebsocket.applyListeners({ name: wsName });
 
-      WebSocket.addListener(`${wsName}:message`, (event) => {
+      CapacitorWebsocket.addListener(`${wsName}:message`, (event) => {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'channels-updated' || data.action === 'channels-updated') {
@@ -91,21 +89,21 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         }
       });
 
-      WebSocket.addListener(`${wsName}:connected`, () => {
+      CapacitorWebsocket.addListener(`${wsName}:connected`, () => {
         console.log('WebSocket connected');
         setError('');
       });
 
-      WebSocket.addListener(`${wsName}:disconnected`, () => {
+      CapacitorWebsocket.addListener(`${wsName}:disconnected`, () => {
         console.log('WebSocket disconnected');
       });
 
-      WebSocket.addListener(`${wsName}:error`, (event) => {
+      CapacitorWebsocket.addListener(`${wsName}:error`, (event) => {
         console.error('WebSocket error:', event.cause);
         setError('Connection error');
       });
 
-      await WebSocket.connect({ name: wsName });
+      await CapacitorWebsocket.connect({ name: wsName });
     } catch (error) {
       console.error('WebSocket setup error:', error);
     }
@@ -282,15 +280,8 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
-    WebSocket.disconnect({ name: wsName });
+    CapacitorWebsocket.disconnect({ name: wsName });
     onNavigate('server');
-  };
-
-  const disconnect = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    WebSocket.disconnect({ name: wsName });
-    onNavigate('auth');
   };
 
   const doRefresh = async (event) => {
@@ -378,9 +369,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           <IonButton slot="end" fill="clear" onClick={() => onNavigate('settings')} style={{ '--color': 'white' }}>
             <IonIcon icon={settings} />
           </IonButton>
-          <IonButton slot="end" fill="clear" onClick={disconnect} style={{ '--color': 'white' }}>
-            <IonIcon icon={power} />
-          </IonButton>
           <IonButton slot="end" fill="clear" onClick={logout} style={{ '--color': 'white' }}>
             <IonIcon icon={logOut} />
           </IonButton>
@@ -392,50 +380,16 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           <IonRefresherContent />
         </IonRefresher>
 
-        <div style={{ padding: '16px', paddingBottom: '8px' }}>
-          <IonSegment 
-            value={searchMode} 
-            onIonChange={e => handleSearchModeChange(e.detail.value)}
-            style={{
-              '--background': 'var(--ion-color-light)',
-              '--background-checked': '#2d004d'
-            }}
-          >
-            <IonSegmentButton value="my">
-              <IonIcon icon={people} />
-              <IonLabel style={{ marginLeft: '8px' }}>My Channels</IonLabel>
-              <IonBadge color="medium" style={{ marginLeft: '8px' }}>
-                {channels.length}
-              </IonBadge>
-            </IonSegmentButton>
-            <IonSegmentButton value="global">
-              <IonIcon icon={globe} />
-              <IonLabel style={{ marginLeft: '8px' }}>All Channels</IonLabel>
-              <IonBadge color="medium" style={{ marginLeft: '8px' }}>
-                {allChannels.length}
-              </IonBadge>
-            </IonSegmentButton>
-          </IonSegment>
-        </div>
-
-        <div style={{ padding: '16px', paddingTop: '8px' }}>
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <IonSearchbar
-              value={searchQuery}
-              onIonInput={handleSearch}
-              onIonClear={clearSearch}
-              placeholder={`Search ${searchMode === 'my' ? 'my' : 'all'} channels...`}
-              style={{
-                '--border-radius': '12px',
-                '--box-shadow': '0 2px 8px rgba(45, 0, 77, 0.1)'
-              }}
-            />
-          </motion.div>
-        </div>
+        <Search
+          searchMode={searchMode}
+          handleSearchModeChange={handleSearchModeChange}
+          channels={channels}
+          allChannels={allChannels}
+          searchQuery={searchQuery}
+          handleSearch={handleSearch}
+          clearSearch={clearSearch}
+          searchLoading={searchLoading}
+        />
 
         <AnimatePresence>
           {error && (
@@ -486,39 +440,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
             </IonButton>
           </motion.div>
         </div>
-
-        {searchLoading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ 
-              textAlign: 'center', 
-              padding: '20px',
-              color: 'var(--ion-color-medium)'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
-              <motion.div
-                style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2d004d' }}
-                variants={loadingVariants}
-                animate="animate"
-              />
-              <motion.div
-                style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2d004d' }}
-                variants={loadingVariants}
-                animate="animate"
-                transition={{ delay: 0.2 }}
-              />
-              <motion.div
-                style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2d004d' }}
-                variants={loadingVariants}
-                animate="animate"
-                transition={{ delay: 0.4 }}
-              />
-            </div>
-            <p>Searching channels...</p>
-          </motion.div>
-        )}
 
         <motion.div
           variants={containerVariants}
