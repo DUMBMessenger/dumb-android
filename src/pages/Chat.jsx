@@ -17,6 +17,7 @@ import {
 import { send, attach, mic, arrowUndo, arrowBack, close } from 'ionicons/icons';
 import { useState, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { WebSocket } from '@miaz/capacitor-websocket';
 
 function Chat({ serverUrl, channel, onNavigate }) {
   const [messages, setMessages] = useState([]);
@@ -26,24 +27,19 @@ function Chat({ serverUrl, channel, onNavigate }) {
   const [replyingTo, setReplyingTo] = useState(null);
   const [userAvatars, setUserAvatars] = useState({});
   const clientRef = useRef(null);
-  const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
   const swipeThreshold = 50;
-  const reconnectTimeoutRef = useRef(null);
+  const wsName = 'chat';
 
   const currentUsername = localStorage.getItem('username') || 'You';
 
   useEffect(() => {
     initializeChat();
+    setupWebSocket();
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'Component unmount');
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
+      WebSocket.disconnect({ name: wsName });
     };
   }, [channel]);
 
@@ -54,6 +50,52 @@ function Chat({ serverUrl, channel, onNavigate }) {
   useEffect(() => {
     loadUserAvatars();
   }, [messages]);
+
+  const setupWebSocket = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
+      
+      await WebSocket.build({
+        name: wsName,
+        url: `${wsUrl}/ws?token=${token}&channel=${channel}`,
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      await WebSocket.applyListeners({ name: wsName });
+
+      WebSocket.addListener(`${wsName}:message`, (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'message' && data.channel === channel) {
+            handleIncomingMessage(data);
+          }
+        } catch (error) {
+          console.error('WebSocket parsing error:', error);
+        }
+      });
+
+      WebSocket.addListener(`${wsName}:connected`, () => {
+        console.log('Chat WebSocket connected');
+        setError('');
+      });
+
+      WebSocket.addListener(`${wsName}:disconnected`, () => {
+        console.log('Chat WebSocket disconnected');
+      });
+
+      WebSocket.addListener(`${wsName}:error`, (event) => {
+        console.error('Chat WebSocket error:', event.cause);
+        setError('Connection error');
+      });
+
+      await WebSocket.connect({ name: wsName });
+    } catch (error) {
+      console.error('WebSocket setup error:', error);
+    }
+  };
 
   const initializeChat = async () => {
     try {
@@ -66,54 +108,10 @@ function Chat({ serverUrl, channel, onNavigate }) {
       const { ChatClient } = await import('dumb_api_js');
       clientRef.current = new ChatClient({ serverUrl, token });
       await loadMessages();
-      connectWebSocket();
     } catch (error) {
       setError(error.message);
       setLoading(false);
     }
-  };
-
-  const connectWebSocket = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
-    const ws = new WebSocket(`${wsUrl}/ws?token=${token}&channel=${channel}`);
-    
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('Chat WebSocket connected');
-      setError('');
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Chat WebSocket message:', data);
-        
-        if (data.type === 'message' && data.channel === channel) {
-          handleIncomingMessage(data);
-        }
-      } catch (error) {
-        console.error('WebSocket parsing error:', error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('Chat WebSocket error:', error);
-      setError('Connection error');
-    };
-
-    ws.onclose = (event) => {
-      console.log('Chat WebSocket closed:', event.code, event.reason);
-      
-      if (event.code !== 1000) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 3000);
-      }
-    };
   };
 
   const handleIncomingMessage = (message) => {

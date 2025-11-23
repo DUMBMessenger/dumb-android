@@ -25,6 +25,7 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const [twoFactorToken, setTwoFactorToken] = useState('');
   const [userData, setUserData] = useState({});
   const [twoFactorData, setTwoFactorData] = useState(null);
+  const [userAvatar, setUserAvatar] = useState(null);
   const fileInputRef = useRef(null);
   const clientRef = useRef(null);
 
@@ -32,6 +33,7 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
 
   useEffect(() => {
     initializeClient();
+    loadUserAvatar();
   }, []);
 
   const initializeClient = async () => {
@@ -42,10 +44,30 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
       const { ChatClient } = await import('dumb_api_js');
       clientRef.current = new ChatClient({ serverUrl, token });
       
-      // Load user data
       setUserData({ username: currentUsername });
     } catch (error) {
       console.error('Error initializing client:', error);
+    }
+  };
+
+  const loadUserAvatar = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`${serverUrl}/api/user/${currentUsername}/avatar`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const avatarUrl = URL.createObjectURL(blob);
+        setUserAvatar(avatarUrl);
+      }
+    } catch (error) {
+      console.error('Error loading user avatar:', error);
     }
   };
 
@@ -60,6 +82,7 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
       
       await client.uploadAvatar(file);
       setShowAvatarUpload(false);
+      loadUserAvatar();
     } catch (error) {
       console.error('Error uploading avatar:', error);
     }
@@ -152,19 +175,25 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
                 '--padding-start': '16px',
                 '--inner-padding-end': '16px'
               }}>
-                <IonAvatar slot="start" style={{ 
-                  width: '60px', 
-                  height: '60px',
-                  background: '#2d004d',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '20px',
-                  fontWeight: '600',
-                  color: 'white'
-                }}>
-                  {currentUsername[0]?.toUpperCase() || 'U'}
-                </IonAvatar>
+                {userAvatar ? (
+                  <IonAvatar slot="start" style={{ width: '60px', height: '60px' }}>
+                    <IonImg src={userAvatar} alt={currentUsername} style={{ objectFit: 'cover' }} />
+                  </IonAvatar>
+                ) : (
+                  <IonAvatar slot="start" style={{ 
+                    width: '60px', 
+                    height: '60px',
+                    background: '#2d004d',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '20px',
+                    fontWeight: '600',
+                    color: 'white'
+                  }}>
+                    {currentUsername[0]?.toUpperCase() || 'U'}
+                  </IonAvatar>
+                )}
                 <IonLabel>
                   <h2 style={{ fontWeight: '600', color: '#2d004d' }}>{currentUsername}</h2>
                   <p style={{ color: 'var(--ion-color-medium)' }}>Change your profile picture</p>

@@ -1,4 +1,3 @@
-// Channels.jsx - добавление глобального поиска
 import {
   IonPage,
   IonHeader,
@@ -21,10 +20,11 @@ import {
 import { add, settings, logOut, power, people, globe } from 'ionicons/icons';
 import { useState, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { WebSocket } from '@miaz/capacitor-websocket';
 
 function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const [channels, setChannels] = useState([]);
-  const [allChannels, setAllChannels] = useState([]); // Все каналы на сервере
+  const [allChannels, setAllChannels] = useState([]);
   const [filteredChannels, setFilteredChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -32,34 +32,26 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState('my'); // 'my' или 'global'
+  const [searchMode, setSearchMode] = useState('my');
   const clientRef = useRef(null);
-  const wsRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
+  const wsName = 'channels';
 
   useEffect(() => {
     initializeClient();
+    setupWebSocket();
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
+      WebSocket.disconnect({ name: wsName });
     };
   }, []);
 
-  // Фильтрация каналов при изменении поискового запроса или режима
   useEffect(() => {
     if (searchQuery.trim() === '') {
-      // Если поиск пустой, показываем каналы в зависимости от режима
       if (searchMode === 'my') {
         setFilteredChannels(channels);
       } else {
         setFilteredChannels(allChannels);
       }
     } else {
-      // Фильтруем в зависимости от режима поиска
       const sourceChannels = searchMode === 'my' ? channels : allChannels;
       const filtered = sourceChannels.filter(channel => 
         channel.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -69,6 +61,55 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
       setFilteredChannels(filtered);
     }
   }, [channels, allChannels, searchQuery, searchMode]);
+
+  const setupWebSocket = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
+      
+      await WebSocket.build({
+        name: wsName,
+        url: `${wsUrl}?token=${token}`,
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      await WebSocket.applyListeners({ name: wsName });
+
+      WebSocket.addListener(`${wsName}:message`, (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'channels-updated' || data.action === 'channels-updated') {
+            loadChannels();
+            if (searchMode === 'global') {
+              searchGlobalChannels(searchQuery);
+            }
+          }
+        } catch (error) {
+          console.error('WebSocket parsing error:', error);
+        }
+      });
+
+      WebSocket.addListener(`${wsName}:connected`, () => {
+        console.log('WebSocket connected');
+        setError('');
+      });
+
+      WebSocket.addListener(`${wsName}:disconnected`, () => {
+        console.log('WebSocket disconnected');
+      });
+
+      WebSocket.addListener(`${wsName}:error`, (event) => {
+        console.error('WebSocket error:', event.cause);
+        setError('Connection error');
+      });
+
+      await WebSocket.connect({ name: wsName });
+    } catch (error) {
+      console.error('WebSocket setup error:', error);
+    }
+  };
 
   const initializeClient = async () => {
     try {
@@ -81,58 +122,10 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
       const { ChatClient } = await import('dumb_api_js');
       clientRef.current = new ChatClient({ serverUrl, token });
       await loadChannels();
-      connectWebSocket();
     } catch (error) {
       setError(error.message);
       setLoading(false);
     }
-  };
-
-  const connectWebSocket = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
-    const ws = new WebSocket(`${wsUrl}?token=${token}`);
-    
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setError('');
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('WebSocket message:', data);
-        
-        if (data.type === 'channels-updated' || data.action === 'channels-updated') {
-          loadChannels();
-          // При обновлении каналов также обновляем глобальный поиск
-          if (searchMode === 'global') {
-            searchGlobalChannels(searchQuery);
-          }
-        }
-      } catch (error) {
-        console.error('WebSocket parsing error:', error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setError('Connection error');
-    };
-
-    ws.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
-      
-      if (event.code !== 1000) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 3000);
-      }
-    };
   };
 
   const loadChannels = async () => {
@@ -164,7 +157,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
   };
 
-  // Глобальный поиск каналов
   const searchGlobalChannels = async (query = '') => {
     if (!clientRef.current) return;
 
@@ -205,7 +197,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const handleSearchModeChange = (mode) => {
     setSearchMode(mode);
     if (mode === 'global' && allChannels.length === 0) {
-      // При первом переходе в глобальный режим загружаем все каналы
       searchGlobalChannels('');
     } else if (mode === 'my') {
       setFilteredChannels(searchQuery ? 
@@ -238,14 +229,9 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     try {
       await clientRef.current.joinChannel(channelId);
       setError('');
-      
-      // Обновляем список каналов после присоединения
       await loadChannels();
-      
-      // Показываем успешное сообщение
       setError(`Successfully joined channel!`);
       setTimeout(() => setError(''), 3000);
-      
     } catch (error) {
       setError(error.message || 'Failed to join channel');
     }
@@ -258,7 +244,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
 
     try {
-      // Проверяем, существует ли уже канал с таким именем
       const existingChannel = allChannels.find(
         channel => channel.name?.toLowerCase() === newChannelName.toLowerCase()
       );
@@ -268,7 +253,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         return;
       }
 
-      // Создаем канал через API
       const result = await clientRef.current.createChannel(newChannelName.trim());
       
       if (result && (result.success || result.id || result.channel)) {
@@ -276,15 +260,10 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         setNewChannelName('');
         setShowCreate(false);
         setError('');
-        
-        // Обновляем список каналов
         await loadChannels();
-        
-        // Обновляем глобальный поиск если активен
         if (searchMode === 'global') {
           searchGlobalChannels(searchQuery);
         }
-        
       } else {
         throw new Error('Failed to create channel: Invalid response from server');
       }
@@ -303,18 +282,14 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
-    if (wsRef.current) {
-      wsRef.current.close(1000, 'Logout');
-    }
+    WebSocket.disconnect({ name: wsName });
     onNavigate('server');
   };
 
   const disconnect = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
-    if (wsRef.current) {
-      wsRef.current.close(1000, 'Disconnect');
-    }
+    WebSocket.disconnect({ name: wsName });
     onNavigate('auth');
   };
 
@@ -417,7 +392,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           <IonRefresherContent />
         </IonRefresher>
 
-        {/* Сегмент выбора режима поиска */}
         <div style={{ padding: '16px', paddingBottom: '8px' }}>
           <IonSegment 
             value={searchMode} 
@@ -444,7 +418,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           </IonSegment>
         </div>
 
-        {/* Поиск каналов */}
         <div style={{ padding: '16px', paddingTop: '8px' }}>
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -514,7 +487,6 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           </motion.div>
         </div>
 
-        {/* Индикатор загрузки поиска */}
         {searchLoading && (
           <motion.div
             initial={{ opacity: 0 }}
