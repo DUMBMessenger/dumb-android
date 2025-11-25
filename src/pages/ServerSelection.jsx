@@ -1,4 +1,3 @@
-// ServerSelection.jsx
 import {
   IonPage,
   IonHeader,
@@ -17,9 +16,10 @@ import {
   IonBadge,
   IonToast
 } from '@ionic/react';
-import { settings, trash, colorPalette, pencil, wifi, warning } from 'ionicons/icons';
+import { settings, trash, pencil, wifi, warning } from 'ionicons/icons';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useServers } from './brain/servers';
 
 export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate, theme, onToggleTheme }) {
   const [servers, setServers] = useState([]);
@@ -33,75 +33,46 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
+  const { loadServers, saveServer, deleteServer, renameServer, checkServerStatus } = useServers();
+
   useEffect(() => {
-    loadServers();
+    setServers(loadServers());
   }, []);
 
   useEffect(() => {
-    // Проверяем статус всех серверов при загрузке
     if (servers.length > 0) {
       checkAllServersStatus();
     }
   }, [servers]);
 
-  const loadServers = () => {
-    const saved = JSON.parse(localStorage.getItem('servers') || '[]');
-    setServers(saved);
+  const handleSaveServer = () => {
+    try {
+      const updated = saveServer(servers, newServer);
+      setServers(updated);
+      setNewServer({ name: '', url: '' });
+      showToastMessage('Server saved successfully');
+    } catch (error) {
+      showToastMessage(error.message);
+    }
   };
 
-  const saveServer = () => {
-    if (!newServer.name || !newServer.url) {
-      showToastMessage('Please enter both server name and URL');
-      return;
-    }
-    
-    // Проверяем уникальность имени
-    if (servers.some(server => server.name === newServer.name)) {
-      showToastMessage('Server name already exists');
-      return;
-    }
-
-    // Проверяем уникальность URL
-    if (servers.some(server => server.url === newServer.url)) {
-      showToastMessage('Server URL already exists');
-      return;
-    }
-    
-    const updated = [...servers, { ...newServer }];
-    localStorage.setItem('servers', JSON.stringify(updated));
-    setServers(updated);
-    setNewServer({ name: '', url: '' });
-    showToastMessage('Server saved successfully');
-  };
-
-  const deleteServer = (index) => {
-    const updated = servers.filter((_, i) => i !== index);
-    localStorage.setItem('servers', JSON.stringify(updated));
+  const handleDeleteServer = (index) => {
+    const updated = deleteServer(servers, index);
     setServers(updated);
     setShowActionSheet(false);
     showToastMessage('Server deleted');
   };
 
-  const renameServer = () => {
-    if (!renameValue.trim()) {
-      showToastMessage('Please enter a server name');
-      return;
+  const handleRenameServer = () => {
+    try {
+      const updated = renameServer(servers, selectedServer, renameValue);
+      setServers(updated);
+      setShowRenameAlert(false);
+      setRenameValue('');
+      showToastMessage('Server renamed successfully');
+    } catch (error) {
+      showToastMessage(error.message);
     }
-
-    // Проверяем уникальность нового имени
-    if (servers.some((server, i) => i !== selectedServer && server.name === renameValue)) {
-      showToastMessage('Server name already exists');
-      return;
-    }
-    
-    const updated = servers.map((server, i) => 
-      i === selectedServer ? { ...server, name: renameValue } : server
-    );
-    localStorage.setItem('servers', JSON.stringify(updated));
-    setServers(updated);
-    setShowRenameAlert(false);
-    setRenameValue('');
-    showToastMessage('Server renamed successfully');
   };
 
   const connectToServer = async (server) => {
@@ -119,56 +90,32 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
     }
   };
 
-  const checkServerStatus = async (serverUrl, serverName) => {
-    const startTime = performance.now();
-    
-    try {
-      const response = await fetch(`${serverUrl}/api/ping`, {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      const endTime = performance.now();
-      const ping = Math.round(endTime - startTime);
-      
-      if (response.ok) {
-        setServerStatus(prev => ({
-          ...prev,
-          [serverUrl]: { status: 'online', ping, lastChecked: new Date().toISOString() }
-        }));
-        return { status: 'online', ping };
-      } else {
-        setServerStatus(prev => ({
-          ...prev,
-          [serverUrl]: { status: 'error', ping: null, lastChecked: new Date().toISOString() }
-        }));
-        return { status: 'error', ping: null };
-      }
-    } catch (error) {
-      setServerStatus(prev => ({
-        ...prev,
-        [serverUrl]: { status: 'offline', ping: null, lastChecked: new Date().toISOString() }
-      }));
-      return { status: 'offline', ping: null };
-    }
-  };
-
   const checkAllServersStatus = async () => {
     setCheckingStatus(true);
     
     const statusPromises = servers.map(server => 
-      checkServerStatus(server.url, server.name)
+      checkServerStatus(server.url)
     );
     
-    await Promise.allSettled(statusPromises);
+    const results = await Promise.allSettled(statusPromises);
+    
+    const newStatus = {};
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        newStatus[servers[index].url] = {
+          ...result.value,
+          lastChecked: new Date().toISOString()
+        };
+      }
+    });
+    
+    setServerStatus(newStatus);
     setCheckingStatus(false);
   };
 
   const checkSingleServerStatus = async (server, index) => {
     setCheckingStatus(true);
-    const result = await checkServerStatus(server.url, server.name);
+    const result = await checkServerStatus(server.url);
     
     let message = `${server.name}: `;
     if (result.status === 'online') {
@@ -235,7 +182,6 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
     }
   };
 
-  // Анимация для появления серверов
   const fadeUpAnimation = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
@@ -298,7 +244,7 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
           
           <IonButton 
             expand="block" 
-            onClick={saveServer} 
+            onClick={handleSaveServer} 
             style={{ 
               margin: '21px 0 16px 0',
               '--border-radius': '12px',
@@ -383,7 +329,7 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
               text: 'Delete',
               role: 'destructive',
               icon: trash,
-              handler: () => deleteServer(selectedServer)
+              handler: () => handleDeleteServer(selectedServer)
             },
             {
               text: 'Cancel',
@@ -413,8 +359,7 @@ export default function ServerSelection({ serverUrl, onSetServerUrl, onNavigate,
               text: 'Save',
               handler: (data) => {
                 setRenameValue(data.name);
-                // Используем setTimeout чтобы дать время обновиться состоянию
-                setTimeout(() => renameServer(), 100);
+                setTimeout(() => handleRenameServer(), 100);
               }
             }
           ]}

@@ -14,12 +14,15 @@ import {
 } from '@ionic/react';
 import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from './brain/auth';
 
 function AuthScreen({ serverUrl, onLogin, onNavigate }) {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ username: '', password: '' });
+
+  const { login, register } = useAuth();
 
   const handleAuth = async () => {
     if (!form.username || !form.password) {
@@ -36,17 +39,14 @@ function AuthScreen({ serverUrl, onLogin, onNavigate }) {
         throw new Error('Server not responding');
       }
 
-      const { ChatClient } = await import('dumb_api_js');
-      const client = new ChatClient({ serverUrl });
-
       let result;
       
       if (isLogin) {
-        result = await client.login(form.username, form.password);
+        result = await login(serverUrl, form.username, form.password);
       } else {
-        result = await client.register(form.username, form.password);
+        result = await register(serverUrl, form.username, form.password);
         if (result.success) {
-          result = await client.login(form.username, form.password);
+          result = await login(serverUrl, form.username, form.password);
         }
       }
 

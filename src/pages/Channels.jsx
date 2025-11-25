@@ -14,10 +14,13 @@ import {
   IonRefresherContent,
   IonBadge
 } from '@ionic/react';
-import { add, settings, logOut, people, globe } from 'ionicons/icons';
+import { add, settings, logOut } from 'ionicons/icons';
 import { useState, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CapacitorWebsocket } from '@miaz/capacitor-websocket';
+import { useWebSocket } from './brain/ws';
+import { useChannels } from './brain/channel';
+import { useAuth } from './brain/auth';
+import { useChat } from './brain/chat';
 import Search from './Search';
 
 function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
@@ -34,11 +37,16 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const clientRef = useRef(null);
   const wsName = 'channels';
 
+  const { connect, disconnect, addMessageListener, addConnectionListeners } = useWebSocket();
+  const { loadChannels, searchChannels, joinChannel, createChannel, filterChannels, checkChannelMembership } = useChannels();
+  const { logout } = useAuth();
+  const { initializeClient } = useChat();
+
   useEffect(() => {
     initializeClient();
     setupWebSocket();
     return () => {
-      CapacitorWebsocket.disconnect({ name: wsName });
+      disconnect(wsName);
     };
   }, []);
 
@@ -51,11 +59,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
       }
     } else {
       const sourceChannels = searchMode === 'my' ? channels : allChannels;
-      const filtered = sourceChannels.filter(channel => 
-        channel.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        channel.id?.toString().includes(searchQuery) ||
-        channel.description?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      const filtered = filterChannels(sourceChannels, searchQuery);
       setFilteredChannels(filtered);
     }
   }, [channels, allChannels, searchQuery, searchMode]);
@@ -67,43 +71,32 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
 
       const wsUrl = serverUrl.replace('http', 'ws').replace('https', 'wss');
       
-      await CapacitorWebsocket.build({
-        name: wsName,
-        url: `${wsUrl}?token=${token}`,
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await connect(wsName, wsUrl, token);
 
-      await CapacitorWebsocket.applyListeners({ name: wsName });
-
-      CapacitorWebsocket.addListener(`${wsName}:message`, (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'channels-updated' || data.action === 'channels-updated') {
-            loadChannels();
-            if (searchMode === 'global') {
-              searchGlobalChannels(searchQuery);
-            }
+      addMessageListener(wsName, (data) => {
+        if (data.type === 'channels-updated' || data.action === 'channels-updated') {
+          loadUserChannels();
+          if (searchMode === 'global') {
+            searchGlobalChannels(searchQuery);
           }
-        } catch (error) {
-          console.error('WebSocket parsing error:', error);
         }
       });
 
-      CapacitorWebsocket.addListener(`${wsName}:connected`, () => {
-        console.log('WebSocket connected');
-        setError('');
-      });
+      addConnectionListeners(
+        wsName,
+        () => {
+          console.log('WebSocket connected');
+          setError('');
+        },
+        () => {
+          console.log('WebSocket disconnected');
+        },
+        (event) => {
+          console.error('WebSocket error:', event.cause);
+          setError('Connection error');
+        }
+      );
 
-      CapacitorWebsocket.addListener(`${wsName}:disconnected`, () => {
-        console.log('WebSocket disconnected');
-      });
-
-      CapacitorWebsocket.addListener(`${wsName}:error`, (event) => {
-        console.error('WebSocket error:', event.cause);
-        setError('Connection error');
-      });
-
-      await CapacitorWebsocket.connect({ name: wsName });
     } catch (error) {
       console.error('WebSocket setup error:', error);
     }
@@ -117,35 +110,19 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         return;
       }
 
-      const { ChatClient } = await import('dumb_api_js');
-      clientRef.current = new ChatClient({ serverUrl, token });
-      await loadChannels();
+      clientRef.current = await initializeClient(serverUrl, token);
+      await loadUserChannels();
     } catch (error) {
       setError(error.message);
       setLoading(false);
     }
   };
 
-  const loadChannels = async () => {
+  const loadUserChannels = async () => {
     try {
-      const response = await clientRef.current.getChannels();
-      
-      let channelsArray = response;
-      if (response && !Array.isArray(response)) {
-        if (response.channels && Array.isArray(response.channels)) {
-          channelsArray = response.channels;
-        } else if (response.data && Array.isArray(response.data)) {
-          channelsArray = response.data;
-        } else if (response.success && Array.isArray(response.channels)) {
-          channelsArray = response.channels;
-        } else {
-          channelsArray = Object.values(response);
-        }
-      }
-      
-      const formattedChannels = Array.isArray(channelsArray) ? channelsArray : [];
-      setChannels(formattedChannels);
-      setFilteredChannels(formattedChannels);
+      const channelsArray = await loadChannels(clientRef.current);
+      setChannels(channelsArray);
+      setFilteredChannels(channelsArray);
       setError('');
     } catch (error) {
       setError(error.message);
@@ -160,14 +137,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
 
     try {
       setSearchLoading(true);
-      const response = await clientRef.current.searchChannels(query);
-      
-      let channelsArray = [];
-      if (response && response.success && response.channels) {
-        channelsArray = response.channels;
-      } else if (Array.isArray(response)) {
-        channelsArray = response;
-      }
+      const channelsArray = await searchChannels(clientRef.current, query);
       
       setAllChannels(channelsArray);
       
@@ -175,11 +145,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         if (query.trim() === '') {
           setFilteredChannels(channelsArray);
         } else {
-          const filtered = channelsArray.filter(channel => 
-            channel.name?.toLowerCase().includes(query.toLowerCase()) ||
-            channel.id?.toString().includes(query) ||
-            channel.description?.toLowerCase().includes(query.toLowerCase())
-          );
+          const filtered = filterChannels(channelsArray, query);
           setFilteredChannels(filtered);
         }
       }
@@ -198,10 +164,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
       searchGlobalChannels('');
     } else if (mode === 'my') {
       setFilteredChannels(searchQuery ? 
-        channels.filter(channel => 
-          channel.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          channel.id?.toString().includes(searchQuery)
-        ) : 
+        filterChannels(channels, searchQuery) : 
         channels
       );
     }
@@ -223,11 +186,11 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
   };
 
-  const joinChannel = async (channelId) => {
+  const handleJoinChannel = async (channelId) => {
     try {
-      await clientRef.current.joinChannel(channelId);
+      await joinChannel(clientRef.current, channelId);
       setError('');
-      await loadChannels();
+      await loadUserChannels();
       setError(`Successfully joined channel!`);
       setTimeout(() => setError(''), 3000);
     } catch (error) {
@@ -235,7 +198,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
   };
 
-  const createChannel = async () => {
+  const handleCreateChannel = async () => {
     if (!newChannelName.trim()) {
       setError('Channel name cannot be empty');
       return;
@@ -251,14 +214,14 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         return;
       }
 
-      const result = await clientRef.current.createChannel(newChannelName.trim());
+      const result = await createChannel(clientRef.current, newChannelName.trim());
       
       if (result && (result.success || result.id || result.channel)) {
         console.log('Channel created successfully:', result);
         setNewChannelName('');
         setShowCreate(false);
         setError('');
-        await loadChannels();
+        await loadUserChannels();
         if (searchMode === 'global') {
           searchGlobalChannels(searchQuery);
         }
@@ -271,21 +234,14 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
   };
 
-  const handleCreateChannel = () => {
-    if (newChannelName.trim()) {
-      createChannel();
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    CapacitorWebsocket.disconnect({ name: wsName });
+  const handleLogout = () => {
+    logout();
+    disconnect(wsName);
     onNavigate('server');
   };
 
   const doRefresh = async (event) => {
-    await loadChannels();
+    await loadUserChannels();
     if (searchMode === 'global') {
       await searchGlobalChannels(searchQuery);
     }
@@ -369,7 +325,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           <IonButton slot="end" fill="clear" onClick={() => onNavigate('settings')} style={{ '--color': 'white' }}>
             <IonIcon icon={settings} />
           </IonButton>
-          <IonButton slot="end" fill="clear" onClick={logout} style={{ '--color': 'white' }}>
+          <IonButton slot="end" fill="clear" onClick={handleLogout} style={{ '--color': 'white' }}>
             <IonIcon icon={logOut} />
           </IonButton>
         </IonToolbar>
@@ -449,7 +405,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
           <IonList style={{ '--background': 'transparent', padding: '0 16px' }}>
             <AnimatePresence>
               {filteredChannels.map((channel, index) => {
-                const isMember = channels.some(c => c.id === channel.id || c.name === channel.name);
+                const isMember = checkChannelMembership(channels, channel);
                 
                 return (
                   <motion.div
@@ -491,7 +447,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
                               fill="solid"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                joinChannel(channel.id || channel.name);
+                                handleJoinChannel(channel.id || channel.name);
                               }}
                               style={{
                                 '--background': '#2d004d',

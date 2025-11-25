@@ -9,13 +9,13 @@ import {
   IonLabel,
   IonButton,
   IonIcon,
-  IonAvatar,
   IonAlert,
   IonInput,
   IonToggle,
-  IonImg
+  IonImg,
+  IonAvatar
 } from '@ionic/react';
-import { arrowBack, person, notifications, shield, logOut } from 'ionicons/icons';
+import { arrowBack, person, notifications, shield, logOut, colorPalette } from 'ionicons/icons';
 import { useState, useRef, memo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
@@ -227,6 +227,27 @@ function Settings({ serverUrl, onNavigate, theme, onToggleTheme }) {
                 <IonLabel style={{ color: '#2d004d', fontWeight: '500' }}>Push Notifications</IonLabel>
                 <IonToggle 
                   checked={true} 
+                  style={{ 
+                    '--handle-background-checked': '#2d004d',
+                    '--background-checked': '#4a0072'
+                  }}
+                />
+              </IonItem>
+            </motion.div>
+
+            <motion.div variants={itemVariants}>
+              <IonItem style={{
+                '--background': 'var(--ion-color-light)',
+                '--border-radius': '12px',
+                margin: '8px 16px',
+                '--padding-start': '16px',
+                '--inner-padding-end': '16px'
+              }}>
+                <IonIcon icon={colorPalette} slot="start" style={{ color: '#2d004d' }} />
+                <IonLabel style={{ color: '#2d004d', fontWeight: '500' }}>95Core Theme</IonLabel>
+                <IonToggle 
+                  checked={theme === '95core'} 
+                  onIonChange={onToggleTheme}
                   style={{ 
                     '--handle-background-checked': '#2d004d',
                     '--background-checked': '#4a0072'

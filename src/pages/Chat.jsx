@@ -155,6 +155,7 @@ function Chat({ serverUrl, channel, onNavigate }) {
       return [...prev, processedMessage];
     });
 
+    // Загружаем аватар только если его еще нет
     if (message.from && !userAvatars[message.from]) {
       loadUserAvatar(message.from);
     }
@@ -232,14 +233,30 @@ function Chat({ serverUrl, channel, onNavigate }) {
   const loadUserAvatars = async () => {
     const uniqueUsers = [...new Set(messages.map(msg => msg.from).filter(Boolean))];
     
-    for (const username of uniqueUsers) {
-      if (username && !userAvatars[username]) {
-        await loadUserAvatar(username);
-      }
+    // Загружаем аватары только для новых пользователей
+    const usersToLoad = uniqueUsers.filter(username => 
+      username && !userAvatars[username] && username !== currentUsername
+    );
+    
+    console.log('Loading avatars for users:', usersToLoad);
+    
+    for (const username of usersToLoad) {
+      await loadUserAvatar(username);
     }
   };
 
   const loadUserAvatar = async (username) => {
+    // Не загружаем аватар если он уже загружается или загружен
+    if (userAvatars[username] === 'loading' || userAvatars[username]) {
+      return;
+    }
+
+    // Помечаем как загружающийся
+    setUserAvatars(prev => ({
+      ...prev,
+      [username]: 'loading'
+    }));
+
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
@@ -250,22 +267,38 @@ function Chat({ serverUrl, channel, onNavigate }) {
         }
       });
 
-      if (response.ok) {
+      if (response.ok && response.status !== 404) {
         const blob = await response.blob();
-        const avatarUrl = URL.createObjectURL(blob);
-        
-        setUserAvatars(prev => ({
-          ...prev,
-          [username]: avatarUrl
-        }));
+        if (blob && blob.size > 0) {
+          const avatarUrl = URL.createObjectURL(blob);
+          
+          setUserAvatars(prev => ({
+            ...prev,
+            [username]: avatarUrl
+          }));
+          return;
+        }
       }
+      
+      // Если аватар не найден, устанавливаем null чтобы больше не пытаться
+      setUserAvatars(prev => ({
+        ...prev,
+        [username]: null
+      }));
+      
     } catch (error) {
       console.error(`Error loading avatar for ${username}:`, error);
+      // При ошибке также устанавливаем null
+      setUserAvatars(prev => ({
+        ...prev,
+        [username]: null
+      }));
     }
   };
 
   const getAvatarUrl = (username) => {
-    return userAvatars[username] || null;
+    const avatar = userAvatars[username];
+    return avatar && avatar !== 'loading' ? avatar : null;
   };
 
   const scrollToBottom = () => {
@@ -493,6 +526,9 @@ function Chat({ serverUrl, channel, onNavigate }) {
         return;
       }
 
+      // Используем реальную длительность из записи
+      const actualDuration = duration;
+
       // Step 1: Get voiceId from server
       const voiceResponse = await fetch(`${serverUrl}/api/voice/upload`, {
         method: 'POST',
@@ -502,7 +538,7 @@ function Chat({ serverUrl, channel, onNavigate }) {
         },
         body: JSON.stringify({
           channel: channel,
-          duration: duration
+          duration: actualDuration
         })
       });
 
@@ -581,24 +617,68 @@ function Chat({ serverUrl, channel, onNavigate }) {
     try {
       setAudioMessages(prev => ({
         ...prev,
-        [messageId]: 'playing'
+        [messageId]: {
+          status: 'playing',
+          progress: 0,
+          currentTime: 0,
+          duration: 0
+        }
       }));
 
       const fullAudioUrl = audioUrl.startsWith('http') ? audioUrl : `${serverUrl}${audioUrl}`;
       const audio = new Audio(fullAudioUrl);
+      
+      // Ждем загрузки метаданных для получения длительности
+      audio.addEventListener('loadedmetadata', () => {
+        setAudioMessages(prev => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            duration: audio.duration
+          }
+        }));
+      });
+
+      const progressInterval = setInterval(() => {
+        if (audio.duration && !isNaN(audio.duration)) {
+          const progress = (audio.currentTime / audio.duration) * 100;
+          setAudioMessages(prev => ({
+            ...prev,
+            [messageId]: {
+              ...prev[messageId],
+              progress: progress,
+              currentTime: audio.currentTime,
+              duration: audio.duration
+            }
+          }));
+        }
+      }, 100);
+
       audio.play();
       
       audio.onended = () => {
+        clearInterval(progressInterval);
         setAudioMessages(prev => ({
           ...prev,
-          [messageId]: 'idle'
+          [messageId]: {
+            status: 'idle',
+            progress: 0,
+            currentTime: 0,
+            duration: prev[messageId]?.duration || 0
+          }
         }));
       };
       
       audio.onerror = () => {
+        clearInterval(progressInterval);
         setAudioMessages(prev => ({
           ...prev,
-          [messageId]: 'idle'
+          [messageId]: {
+            status: 'idle',
+            progress: 0,
+            currentTime: 0,
+            duration: prev[messageId]?.duration || 0
+          }
         }));
       };
       
@@ -606,9 +686,24 @@ function Chat({ serverUrl, channel, onNavigate }) {
       console.error('Error playing audio:', error);
       setAudioMessages(prev => ({
         ...prev,
-        [messageId]: 'idle'
+        [messageId]: {
+          status: 'idle',
+          progress: 0,
+          currentTime: 0,
+          duration: 0
+        }
       }));
     }
+  };
+
+  const pauseAudioMessage = (messageId) => {
+    setAudioMessages(prev => ({
+      ...prev,
+      [messageId]: {
+        ...prev[messageId],
+        status: 'paused'
+      }
+    }));
   };
 
   const sendMessage = async () => {
@@ -674,6 +769,13 @@ function Chat({ serverUrl, channel, onNavigate }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatAudioTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const renderReplyPreview = (message) => {
     if (!message.replyTo && !message.replyToMessage) return null;
 
@@ -717,8 +819,17 @@ function Chat({ serverUrl, channel, onNavigate }) {
   };
 
   const renderAudioMessage = (message) => {
-    const isPlaying = audioMessages[message.id] === 'playing';
-    const duration = message.duration || 0;
+    const audioState = audioMessages[message.id] || { status: 'idle', progress: 0, currentTime: 0, duration: 0 };
+    const isPlaying = audioState.status === 'playing';
+    const isPaused = audioState.status === 'paused';
+    
+    // Используем длительность из состояния воспроизведения или из сообщения
+    const duration = audioState.duration || 
+                    (message.voice && message.voice.duration) || 
+                    0;
+    
+    const currentTime = audioState.currentTime || 0;
+    const progress = audioState.progress || 0;
     const audioUrl = message.audioUrl || (message.voice && message.voice.downloadUrl);
     
     return (
@@ -729,13 +840,13 @@ function Chat({ serverUrl, channel, onNavigate }) {
         padding: '12px',
         background: 'rgba(255,255,255,0.1)',
         borderRadius: '12px',
-        marginTop: '8px'
+        marginTop: '8px',
+        minWidth: '200px'
       }}>
         <IonButton 
           fill="clear" 
           size="small"
-          onClick={() => playAudioMessage(message.id, audioUrl)}
-          disabled={isPlaying}
+          onClick={() => isPlaying ? pauseAudioMessage(message.id) : playAudioMessage(message.id, audioUrl)}
           style={{
             '--color': message.from === currentUsername ? 'white' : '#2d004d',
             '--background': message.from === currentUsername ? '#4a0072' : 'white',
@@ -748,38 +859,43 @@ function Chat({ serverUrl, channel, onNavigate }) {
         </IonButton>
         
         <div style={{ flex: 1 }}>
+          {/* Progress bar */}
           <div style={{
             height: '4px',
             background: 'rgba(255,255,255,0.3)',
             borderRadius: '2px',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            marginBottom: '8px'
           }}>
             <div style={{
               height: '100%',
               background: message.from === currentUsername ? 'white' : '#2d004d',
-              width: isPlaying ? '50%' : '0%',
-              transition: 'width 0.1s linear'
+              width: `${progress}%`,
+              transition: 'width 0.1s linear',
+              borderRadius: '2px'
             }} />
           </div>
           
+          {/* Time info */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: '4px'
+            alignItems: 'center'
           }}>
             <span style={{
               color: message.from === currentUsername ? 'rgba(255,255,255,0.8)' : 'rgba(45,0,77,0.8)',
               fontSize: '12px',
               fontWeight: '500'
             }}>
-              Voice message
+              {isPlaying || isPaused ? formatAudioTime(currentTime) : 'Voice message'}
             </span>
             <span style={{
               color: message.from === currentUsername ? 'rgba(255,255,255,0.6)' : 'rgba(45,0,77,0.6)',
-              fontSize: '11px'
+              fontSize: '11px',
+              minWidth: '35px',
+              textAlign: 'right'
             }}>
-              {formatRecordingTime(duration)}
+              {formatAudioTime(duration)}
             </span>
           </div>
         </div>

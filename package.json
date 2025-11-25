@@ -26,11 +26,15 @@
     "@miaz/capacitor-websocket": "^0.6.0",
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
+    "@react95/core": "^9.6.2",
+    "@react95/icons": "^2.2.0",
     "dumb_api_js": "^1.0.0",
     "framer-motion": "^12.23.24",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "sass": "^1.94.0"
+    "react95": "^4.0.0",
+    "sass": "^1.94.0",
+    "styled-components": "^6.1.19"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
