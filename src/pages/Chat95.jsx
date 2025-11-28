@@ -11,8 +11,29 @@ import {
   Panel,
   Hourglass
 } from 'react95';
-import { styled } from 'styled-components';
+import { styled, createGlobalStyle } from 'styled-components';
 import { useChat } from './brain/chat';
+import { Cdplayer114, FileText, Globe } from '@react95/icons';
+
+const GlobalStyle = createGlobalStyle`
+  @font-face {
+    font-family: 'MS Sans Serif';
+    src: url('/fonts/ms_sans_serif.woff2') format('woff2'),
+         url('/fonts/ms_sans_serif.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'MS Sans Serif';
+    src: url('/fonts/ms_sans_serif_bold.woff2') format('woff2'),
+         url('/fonts/ms_sans_serif_bold.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+  }
+  body {
+    font-family: 'MS Sans Serif', sans-serif;
+  }
+`;
 
 const StyledWindow = styled(Window)`
   width: 100%;
@@ -23,31 +44,62 @@ const StyledWindow = styled(Window)`
 
 const MessageContainer = styled.div`
   display: flex;
-  flex-direction: ${props => props.own ? 'row-reverse' : 'row'};
+  align-items: baseline;
   gap: 8px;
-  margin-bottom: 16px;
-`;
-
-const MessageBubble = styled(Panel)`
-  max-width: 70%;
-  padding: 8px 12px;
-  background: ${props => props.own ? '#000080' : '#c0c0c0'};
-  color: ${props => props.own ? '#ffffff' : '#000000'};
-  border-radius: 4px;
+  margin-bottom: 4px;
+  padding: 2px 4px;
+  
+  &:hover {
+    background: #f0f0f0;
+  }
 `;
 
 const MessageHeader = styled.div`
   display: flex;
-  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 120px;
+`;
+
+const Username = styled.span`
+  font-weight: bold;
+  color: #000080;
+`;
+
+const Time = styled.span`
+  color: #666;
+  font-size: 11px;
+`;
+
+const MessageText = styled.span`
+  font-size: 13px;
+  line-height: 1.3;
+  flex: 1;
+`;
+
+const ReplyIndicator = styled.div`
+  display: flex;
   align-items: center;
-  margin-bottom: 4px;
-  font-size: 12px;
+  gap: 4px;
+  color: #666;
+  font-size: 11px;
+  margin-left: 8px;
+  font-style: italic;
 `;
 
 const InputContainer = styled.div`
   display: flex;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 6px;
+  margin-top: 12px;
+`;
+
+const ChatContainer = styled.div`
+  background: #ffffff;
+  border: 1px inset #c0c0c0;
+  padding: 4px;
+  height: 400px;
+  overflow-y: auto;
 `;
 
 function Chat95({ serverUrl, channel, onNavigate }) {
@@ -57,6 +109,7 @@ function Chat95({ serverUrl, channel, onNavigate }) {
   const [error, setError] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const clientRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const currentUsername = localStorage.getItem('username') || 'You';
 
@@ -65,6 +118,14 @@ function Chat95({ serverUrl, channel, onNavigate }) {
   useEffect(() => {
     initializeChat();
   }, [channel]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const initializeChat = async () => {
     try {
@@ -126,31 +187,34 @@ function Chat95({ serverUrl, channel, onNavigate }) {
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     try {
-      return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', 'minute': '2-digit' });
+      return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch {
       return '';
     }
   };
 
-  const renderReplyPreview = (message) => {
-    if (!message.replyTo && !message.replyToMessage) return null;
+  const handleReply = (message) => {
+    setReplyingTo(message);
+  };
 
+  const getReplyText = (message) => {
+    if (!message.replyTo && !message.replyToMessage) return null;
     const replyData = message.replyToMessage || { from: 'Unknown', text: 'Message not found' };
-    
-    return (
-      <Panel variant="well" style={{ marginBottom: '8px', padding: '4px 8px', background: 'rgba(0,0,0,0.1)' }}>
-        <div style={{ fontSize: '11px', color: '#666' }}>Replying to {replyData.from}</div>
-        <div style={{ fontSize: '12px' }}>{replyData.text || 'Message content'}</div>
-      </Panel>
-    );
+    return `re: ${replyData.from}: ${replyData.text || 'Message content'}`;
   };
 
   if (loading) {
     return (
       <div style={{ background: '#008080', minHeight: '100vh', padding: '20px' }}>
+        <GlobalStyle />
         <StyledWindow>
           <WindowHeader>#{channel}</WindowHeader>
-          <WindowContent style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+          <WindowContent style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            height: '200px'
+          }}>
             <div style={{ textAlign: 'center' }}>
               <Hourglass size={32} />
               <div>Loading messages...</div>
@@ -163,76 +227,102 @@ function Chat95({ serverUrl, channel, onNavigate }) {
 
   return (
     <div style={{ background: '#008080', minHeight: '100vh', padding: '20px' }}>
+      <GlobalStyle />
       <StyledWindow>
-        <WindowHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <WindowHeader style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center'
+        }}>
           <span>#{channel}</span>
           <Toolbar>
-            <Button size="sm" onClick={() => onNavigate('channels')}>Back</Button>
+            <Button 
+              onClick={() => onNavigate('channels')}
+            >
+              <Globe variant="32x32_4" style={{ marginRight: 4 }} />
+              Channels
+            </Button>
           </Toolbar>
         </WindowHeader>
         
         <WindowContent>
           {error && (
-            <Panel variant="well" style={{ background: '#ffc0c0', padding: '8px', marginBottom: '16px' }}>
+            <Panel variant="well" style={{ 
+              background: '#ffc0c0', 
+              padding: '6px', 
+              marginBottom: '12px',
+              border: '1px inset'
+            }}>
               {error}
             </Panel>
           )}
 
           {replyingTo && (
-            <Panel variant="well" style={{ marginBottom: '16px', padding: '8px', background: '#e0e0e0' }}>
+            <Panel variant="well" style={{ 
+              marginBottom: '12px', 
+              padding: '6px', 
+              background: '#e0e0e0',
+              border: '1px inset'
+            }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: '12px' }}>Replying to {replyingTo.from}</div>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                    <Cdplayer114 variant="32x32_1" style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    Replying to {replyingTo.from}
+                  </div>
                   <div style={{ fontSize: '11px', color: '#666' }}>{replyingTo.text || replyingTo.content}</div>
                 </div>
-                <Button size="sm" onClick={() => setReplyingTo(null)}>Cancel</Button>
+                <Button 
+                  onClick={() => setReplyingTo(null)}
+                >
+                  Cancel
+                </Button>
               </div>
             </Panel>
           )}
 
-          <List style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '16px' }}>
+          <ChatContainer>
             {messages.map((message, index) => (
-              <ListItem key={message.id || index} style={{ border: 'none', padding: '4px 0' }}>
-                <MessageContainer own={message.from === currentUsername}>
-                  <div style={{ 
-                    width: '32px', 
-                    height: '32px', 
-                    background: message.from === currentUsername ? '#000080' : '#c0c0c0',
-                    color: message.from === currentUsername ? '#ffffff' : '#000000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: '16px',
-                    fontSize: '12px',
-                    fontWeight: 'bold'
-                  }}>
-                    {message.from?.[0]?.toUpperCase() || 'U'}
-                  </div>
-                  
-                  <MessageBubble own={message.from === currentUsername}>
-                    <MessageHeader>
-                      <span style={{ fontWeight: 'bold' }}>{message.from || 'Unknown'}</span>
-                      <span style={{ opacity: 0.7 }}>
-                        {formatTime(message.timestamp || message.ts)}
-                        {message.isTemp && ' ⏳'}
-                      </span>
-                    </MessageHeader>
-                    
-                    {renderReplyPreview(message)}
-                    
-                    <div>{message.text || message.content || ''}</div>
-                  </MessageBubble>
-                </MessageContainer>
-              </ListItem>
+              <MessageContainer 
+                key={message.id || index}
+                onClick={() => handleReply(message)}
+                style={{ cursor: 'pointer' }}
+              >
+                <MessageHeader>
+                  <Username>{message.from || 'Unknown'}</Username>
+                  <Time>
+                    {formatTime(message.timestamp || message.ts)}
+                    {message.isTemp && ' ⏳'}
+                  </Time>
+                </MessageHeader>
+                
+                <MessageText>
+                  {message.text || message.content || ''}
+                  {message.hasFile && <FileText variant="32x32_4" style={{ marginLeft: 4, verticalAlign: 'middle' }} />}
+                </MessageText>
+                
+                {(message.replyTo || message.replyToMessage) && (
+                  <ReplyIndicator>
+                    <Cdplayer114 variant="32x32_1" style={{ marginRight: 2 }} />
+                    {getReplyText(message)}
+                  </ReplyIndicator>
+                )}
+              </MessageContainer>
             ))}
             
             {messages.length === 0 && !loading && (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-                <div>No messages yet</div>
-                <div>Start the conversation!</div>
+              <div style={{ 
+                padding: '40px', 
+                textAlign: 'center', 
+                color: '#666'
+              }}>
+                <div style={{ fontSize: '14px', marginBottom: '8px' }}>No messages yet</div>
+                <div style={{ fontSize: '12px' }}>Start the conversation!</div>
               </div>
             )}
-          </List>
+            
+            <div ref={messagesEndRef} />
+          </ChatContainer>
 
           <InputContainer>
             <TextInput

@@ -40,10 +40,10 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
   const { connect, disconnect, addMessageListener, addConnectionListeners } = useWebSocket();
   const { loadChannels, searchChannels, joinChannel, createChannel, filterChannels, checkChannelMembership } = useChannels();
   const { logout } = useAuth();
-  const { initializeClient } = useChat();
+  const { initializeClient: initChatClient } = useChat();
 
   useEffect(() => {
-    initializeClient();
+    setupClient();
     setupWebSocket();
     return () => {
       disconnect(wsName);
@@ -102,7 +102,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
     }
   };
 
-  const initializeClient = async () => {
+  const setupClient = async () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -110,7 +110,7 @@ function Channels({ serverUrl, onNavigate, theme, onToggleTheme }) {
         return;
       }
 
-      clientRef.current = await initializeClient(serverUrl, token);
+      clientRef.current = await initChatClient(serverUrl, token);
       await loadUserChannels();
     } catch (error) {
       setError(error.message);
